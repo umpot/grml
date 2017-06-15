@@ -1,0 +1,4 @@
+1)Fix an->a, a->an, transcriptions.txt
+2)fix singular/uncountable/plural
+3)extract  pairs(or entire chunks?) article + 'target noun'
+4)
