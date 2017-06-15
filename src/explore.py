@@ -45,7 +45,12 @@ def load_train():
     pos_train = load_resource(pos_tags_train)
     print len(sent_train)==len(corr_train)
     res= [zip(sent_train[i], corr_train[i], pos_train[i]) for i in range(len(sent_train))]
-    res =
+    res =[[list(y) for y in x] for x in res]
+
+    for x in res:
+        build_noun_chunks(x)
+
+    return res
 
 
 def to_line(l):
@@ -108,7 +113,9 @@ def explore_pairs_freq(arr):
     return res
 
 
+bad = 0
 def build_noun_chunks(x):
+    global bad
     for i, y in enumerate(x):
         # print y
         article = y[0]
@@ -130,6 +137,13 @@ def build_noun_chunks(x):
             i+=1
             if i==len(x):
                 print ' '.join(original_chunk)
+                bad+=1
+                noun = 'NONE'
+                key = article+' '+noun
+                y.append(key)
+                y.append(original_chunk)
+                y.append(correct_chunk)
+                y.append(noun)
                 break
             new_token = x[i][0]
             new_token_pos = x[i][2]
@@ -145,8 +159,28 @@ def build_noun_chunks(x):
                 y.append(noun)
                 break
 
+    print 'bad {}'.format(bad)
 
 
+def extract__articles_chunks(arr):
+    l=[]
+    for x in arr:
+        for y in x:
+            if len(y)>3:
+                l.append(y)
+
+
+
+    m = {
+        'key':[x[3] for x in l],
+        'original_chunk':[x[4] for x in l],
+        'correct_chunk':[x[5] for x in l],
+        'noun':[x[6] for x in l],
+        'correct':[1 if x[4]==x[5] else 0 for x in l],
+
+    }
+
+    return pd.DataFrame(m)
 
 
 
