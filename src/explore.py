@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import os
 import seaborn as sns
-from collections import Counter
+from collections import Counter, defaultdict
 
 data_folder = '../../data/grml/grammarly_research_assignment/data'
 
@@ -25,6 +25,11 @@ pos_tags_train, pos_tags_test, pos_tags_private_test = \
 ngrams = 'ngrams'
 idioms = os.path.join(data_folder, 'idioms')
 
+ARTICLES={'a', 'an', 'the'}
+
+
+NOUNS={'NNPS', 'NNP', 'NNS', 'NN'}
+
 def get(name):
     return os.path.join(data_folder, name)
 
@@ -37,8 +42,10 @@ def load_resource(name):
 def load_train():
     sent_train = load_resource(sentence_train)
     corr_train = load_resource(corrections_train)
+    pos_train = load_resource(pos_tags_train)
     print len(sent_train)==len(corr_train)
-    return [zip(sent_train[i], corr_train[i]) for i in range(len(sent_train))]
+    res= [zip(sent_train[i], corr_train[i], pos_train[i]) for i in range(len(sent_train))]
+    res =
 
 
 def to_line(l):
@@ -72,3 +79,79 @@ def explore_errors_pairs(arr):
     print len(blja)
 
     return Counter(l)
+
+def explore_pairs_freq(arr):
+    res=defaultdict(list)
+    for x in arr:
+        for i in range(len(x)):
+            y = x[i]
+            art = y[0]
+            if art not in ARTICLES:
+                continue
+
+            y_next = x[i+1]
+
+            key =art+' '+ y_next[0]
+
+            m = res[key]
+            # if 'count' not in m:
+            #     m['count']=0
+            #
+            # m['count']+=1
+
+
+            m.append(y[1])
+
+    res = [(k,v) for k,v in res.iteritems()]
+    res.sort(key=lambda s: len(s[1]), reverse=True)
+
+    return res
+
+
+def build_noun_chunks(x):
+    for i, y in enumerate(x):
+        # print y
+        article = y[0]
+        sub =y[1]
+        pos =y[2]
+
+        if article not in ARTICLES:
+            continue
+
+        if sub is None:
+            sub =article
+
+        original_chunk = [article]
+        correct_chunk = [sub]
+
+        noun = None
+
+        while True:
+            i+=1
+            if i==len(x):
+                print ' '.join(original_chunk)
+                break
+            new_token = x[i][0]
+            new_token_pos = x[i][2]
+            original_chunk+=[new_token]
+            correct_chunk+=[new_token]
+            if new_token_pos in NOUNS:
+                noun = new_token
+
+                key = article+' '+noun
+                y.append(key)
+                y.append(original_chunk)
+                y.append(correct_chunk)
+                y.append(noun)
+                break
+
+
+
+
+
+
+
+
+
+
+
