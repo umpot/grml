@@ -2,3 +2,5 @@
 2)fix singular/uncountable/plural
 3)extract  pairs(or entire chunks?) article + 'target noun'
 4)train - 36K sents, 53.5K articles, 26.9K errors (== a half)
+
+5)4th, 1980s , 82nd , 2006, 10-year 3.9, 100+, 16-year-old, 24-hour , 12-hour+, 1st, 49-month, 9/11

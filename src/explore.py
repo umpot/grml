@@ -6,11 +6,11 @@ import os
 import seaborn as sns
 from collections import Counter, defaultdict, OrderedDict
 import sys
+
 reload(sys)
 sys.setdefaultencoding('utf-8')
 import json
 import re
-
 
 sns.set(color_codes=True)
 sns.set(style="whitegrid", color_codes=True)
@@ -36,82 +36,51 @@ pos_tags_train, pos_tags_test, pos_tags_private_test = \
     'pos_tags_train', 'pos_tags_test', 'pos_tags_private_test'
 
 ngrams = 'ngrams'
-syntactic_ngrams='syntactic_ngrams'
-idioms ='idioms'
-transcriptions='transcriptions'
+syntactic_ngrams = 'syntactic_ngrams'
+idioms = 'idioms'
+transcriptions = 'transcriptions'
 
-singular_nouns='singular_nouns'
-plural_nouns='plural_nouns'
-uncountable_nouns='uncountable_nouns'
+singular_nouns = 'singular_nouns'
+plural_nouns = 'plural_nouns'
+uncountable_nouns = 'uncountable_nouns'
 
 ARTICLES = {'a', 'an', 'the'}
 
 NOUNS = {'NNPS', 'NNP', 'NNS', 'NN'}
 
-
-VOWELS={
+VOWELS = {
+    u'\u0259',  # 'ə',
+    u'\u025b',  # 'ɛ',
+    u'\u025a',  # 'ɚ',
+    u'\u025d',  # 'ɝ',
+    u'\u025c',  # 'ɜ',
+    u'\u01d0',  # 'ǐ',
+    u'\u0251',  # 'ɑ',
+    u'\u0252',  # 'ɒ',
+    u'\u0254',  # 'ɔ',
+    u'\xe6',  # 'æ',
+    u'\u0268',  # 'ɨ',
+    u'\u026a',  # 'ɪ',
+    u'\u026f',  # 'ɯ',
+    u'\u1d7b',  # 'ᵻ',
     'A',
     'E',
     'I',
     'O',
+    u'\u028c',  # 'ʌ',
+    u'\u028a',  # 'ʊ',
     'a',
     'e',
     'i',
     'o',
     'u',
-    'ɪ',
-    'æ',
-    'ʊ',
-    'ʌ',
-    'ɯ',
-    'ᵻ',
-    'ɨ',
-    'O',
-    'ɑ',
-    'ǐ',
-    'ɒ',
-    'ɔ',
-    'ə',
-    'ɛ',
-    'ɚ',
-    'ɝ',
-    'ɜ',
-    'u'
+    u'\u01ce',
+    u'\u0259'
+
 }
 
+symbols_to_skip = '[\'\(\-\{\@]'  # {"'", '(', '-', '{'}
 
-symbols_to_skip = '[\'\(\-\{\@]'#{"'", '(', '-', '{'}
-
-def build_starts_with_vowel_dict():
-    trans = load_transcription()
-    del trans['amens']
-    trans = {k: re.sub(symbols_to_skip, '', v) for k,v in trans.iteritems()}
-
-    print [(k,v) for k,v in trans.iteritems() if len(v)==0]
-
-    return {k.lower(): 1 if v[0] in VOWELS else 0 for k,v in trans.iteritems()}
-
-
-
-
-def build_tri_starts_with_vowel_dict(starts_with_vowel_dict):
-    res = {k:v for k,v in starts_with_vowel_dict.iteritems() if len(k)>2}
-    res = {k[:2]:v for k,v in res.iteritems()}
-
-    return res
-
-
-
-
-def build_bi_starts_with_vowel_dict(starts_with_vowel_dict):
-    res = {k:v for k,v in starts_with_vowel_dict.iteritems() if len(k)>1}
-    res = {k[:1]:v for k,v in res.iteritems()}
-
-    return res
-
-starts_with_vowel_dict = build_starts_with_vowel_dict()
-tri_starts_with_vowel_dict = build_tri_starts_with_vowel_dict(starts_with_vowel_dict)
-bi_starts_with_vowel_dict = build_bi_starts_with_vowel_dict(starts_with_vowel_dict)
 
 def get(name):
     return os.path.join(data_folder, name)
@@ -119,7 +88,53 @@ def get(name):
 
 def load_resource(name):
     with open(get(name + '.txt')) as f:
-        return json.load(f)
+        return json.load(f, encoding='utf-8')
+
+
+def load_transcription():
+    return load_resource(transcriptions)
+
+
+def build_starts_with_vowel_dict():
+    trans = load_transcription()
+    del trans['amens']
+    trans = {k: re.sub(symbols_to_skip, '', v) for k, v in trans.iteritems()}
+
+    print [(k, v) for k, v in trans.iteritems() if len(v) == 0]
+
+    return {k.lower(): 1 if v[0] in VOWELS else 0 for k, v in trans.iteritems()}
+
+
+def build_tri_starts_with_vowel_dict(starts_with_vowel_dict):
+    res = {k: v for k, v in starts_with_vowel_dict.iteritems() if len(k) > 2}
+    res = {k[:2]: v for k, v in res.iteritems()}
+
+    return res
+
+
+def build_bi_starts_with_vowel_dict(starts_with_vowel_dict):
+    res = {k: v for k, v in starts_with_vowel_dict.iteritems() if len(k) > 1}
+    res = {k[:1]: v for k, v in res.iteritems()}
+
+    return res
+
+
+def build_one_starts_with_vowel_dict():
+    res = {chr(i): 0 for i in range(97, 123)}
+    res['a'] = 1
+    res['i'] = 1
+    res['u'] = 1
+    res['o'] = 1
+    res['e'] = 1
+
+    return res
+
+
+starts_with_vowel_dict = build_starts_with_vowel_dict()
+tri_starts_with_vowel_dict = build_tri_starts_with_vowel_dict(starts_with_vowel_dict)
+bi_starts_with_vowel_dict = build_bi_starts_with_vowel_dict(starts_with_vowel_dict)
+
+one_starts_with_vowel_dict = build_one_starts_with_vowel_dict()
 
 
 def load_train():
@@ -139,11 +154,9 @@ def load_train():
 def load_ngrams():
     return load_resource(ngrams)
 
+
 def load_syntactic_ngrams():
     return load_resource(syntactic_ngrams)
-
-def load_transcription():
-    return load_resource(transcriptions)
 
 
 def to_line(l):
@@ -231,11 +244,11 @@ def build_noun_chunks(x):
         correct_chunk = [sub]
 
         noun = None
-        next_token=None
+        next_token = None
         while True:
             i += 1
             if i == len(x):
-                if next_token is None:
+                if next_token is None and new_token not in {'"', "'", ','}:
                     next_token = new_token
                 print ' '.join(original_chunk)
                 bad += 1
@@ -248,7 +261,7 @@ def build_noun_chunks(x):
                 y.append(next_token)
                 break
             new_token = x[i][0]
-            if next_token is None:
+            if next_token is None and new_token not in {'"', "'"}:
                 next_token = new_token
             new_token_pos = x[i][2]
             original_chunk += [new_token]
@@ -270,15 +283,22 @@ def build_noun_chunks(x):
 key = 'key'
 original_chunk = 'original_chunk'
 correct_chunk = 'correct_chunk'
+definite_chunk = 'definite_chunk'
+indefinite_chunk = 'indefinite_chunk'
+
 noun = 'noun'
 correct = 'correct'
+def_correct = 'def_correct'
 sentence = 'sentence'
 next_token = 'next_token'
 
 st_with_v = 'st_with_v'
 
+def_ngram_count = 'def_ngram_count'
+indef_ngram_count = 'indef_ngram_count'
 
-def extract__articles_chunks(arr):
+
+def create_df(arr):
     l = []
     for x in arr:
         for y in x:
@@ -297,26 +317,72 @@ def extract__articles_chunks(arr):
 
     df = pd.DataFrame(m)
 
-    df[sentence] = df[sentence].apply(lambda s:' '.join(x[0] for x in s))
+    df[sentence] = df[sentence].apply(lambda s: ' '.join(x[0] for x in s))
 
     df[original_chunk] = df[original_chunk].apply(lambda s: ' '.join(s))
     df[correct_chunk] = df[correct_chunk].apply(lambda s: ' '.join(s))
     df[st_with_v] = df[next_token].apply(starts_with_vowel)
+    df[key] = df[original_chunk].apply(lambda s: ' '.join(re.sub('[\(\"]', ' ', s).split()))
+
+    def create_def_chunk(s):
+        suff = ' '.join(s.split()[1:])
+        return 'the ' + suff
+
+    def create_indef_chunk(s, starts_with_vowel):
+        suff = ' '.join(s.split()[1:])
+        return 'an ' + suff if starts_with_vowel == 1 else 'a ' + suff
+
+    def is_def_correct(s):
+        return 1 if 'the'==s.split()[0] else 0
+
+    df[def_correct] = df[correct_chunk].apply(is_def_correct)
+
+    df[definite_chunk] = df[original_chunk].apply(create_def_chunk)
+    df[indefinite_chunk] = df.apply(lambda s: create_indef_chunk(s[original_chunk], s[st_with_v]), axis=1)
 
 
-    df = df[[key, original_chunk, correct_chunk, correct, noun, next_token,st_with_v, sentence]]
+    ngrams = load_ngrams()
 
+    df[def_ngram_count] = df[definite_chunk].apply(lambda s: ngrams.get(s, 0))
+    df[indef_ngram_count] = df[indefinite_chunk].apply(lambda s: ngrams.get(s, 0))
+
+    cols = [def_ngram_count, indef_ngram_count, def_correct, original_chunk, correct_chunk, definite_chunk, correct,indefinite_chunk, noun, next_token,
+            st_with_v, sentence]
+    df = df[cols]
 
     return df
 
+
+def get_count_mean_df(df):
+    return df.groupby(key)[correct]. \
+        agg({'count': 'count', 'mean': 'mean'}). \
+        sort_values(by='count', ascending=False)
+
+
 def starts_with_vowel(s):
-    s=s.lower()
+    s = s.lower()
     if s in starts_with_vowel_dict:
         return starts_with_vowel_dict[s]
-    if len(s)>2 and s[:2] in tri_starts_with_vowel_dict:
-        return tri_starts_with_vowel_dict[s[:2]]
 
-    return None
+    if len(s) > 2 and s[:3] in tri_starts_with_vowel_dict:
+        prefix = s[:3].lower()
+        return tri_starts_with_vowel_dict[prefix]
+
+    if len(s) > 1 and s[:2] in bi_starts_with_vowel_dict:
+        prefix = s[:2].lower()
+        return bi_starts_with_vowel_dict[prefix]
+
+    if len(s) > 0 and s[:1] in one_starts_with_vowel_dict:
+        prefix = s[:1].lower()
+        return one_starts_with_vowel_dict[prefix]
+    return 0
 
 
+def create_key_from_chunk(chunk):
+    chunk = re.sub('[\"]', '', chunk)
+    chunk = ' '.join(chunk.split())
 
+    return chunk
+
+    # df = create_df(load_train())
+    # bl=df[df[st_with_v].isnull()]
