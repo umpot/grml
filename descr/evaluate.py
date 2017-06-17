@@ -15,18 +15,20 @@ def evaluate(text_file, correct_file, submission_file):
             if w in ['a', 'an', 'the']:
                 if s is None or s[0] == w:
                     s = ['', float('-inf')]
+                #-score, ok-prediction, is_realy_error
                 data.append((-s[1], s[0] == c, c is not None))
+                #-1, -0.8, -0.2, ... inf, inf
     data.sort()
     fp2 = 0
     fp = 0
     tp = 0
-    all_mistakes = sum(x[2] for x in data)
+    all_mistakes = sum(x[2] for x in data)#num of ALL incorrect
     score = 0
     acc = 0
     for _, c, r in data:
-        fp2 += not c
-        fp += not r
-        tp += c
+        fp2 += not c # wrong correction
+        fp += not r#realy errors count
+        tp += c#right correction
         acc = max(acc, 1 - (0. + fp + all_mistakes - tp) / len(data))
         if fp2 * 1. / len(data) <= 0.02:
             score = tp * 1. / all_mistakes

@@ -226,6 +226,10 @@ def explore_pairs_freq(arr):
 bad = 0
 
 
+# def process_arr(x):
+#
+
+
 def build_noun_chunks(x):
     global bad
     for i, y in enumerate(x):
@@ -372,10 +376,10 @@ def starts_with_vowel(s):
         prefix = s[:2].lower()
         return bi_starts_with_vowel_dict[prefix]
 
-    if len(s) > 0 and s[:1] in one_starts_with_vowel_dict:
-        prefix = s[:1].lower()
-        return one_starts_with_vowel_dict[prefix]
-    return 0
+    # if len(s) > 0 and s[:1] in one_starts_with_vowel_dict:
+    #     prefix = s[:1].lower()
+    #     return one_starts_with_vowel_dict[prefix]
+    # return 0
 
 
 def create_key_from_chunk(chunk):

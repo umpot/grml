@@ -7,3 +7,10 @@
 
 6)those sentences are scored
   using a syntactic n-gram language model
+
+7)fix or maybe remove them,
+
+an   8-celled       8-celled         8-celled human embryo        NaN           20997                                    Some believe it is immoral to destroy the 8-celled human embryo .
+      30788              an         80             80
+
+8)have some column like 'difficult_case' and do not process such cases
