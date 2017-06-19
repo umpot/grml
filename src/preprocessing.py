@@ -231,6 +231,7 @@ solution_details = 'solution_details'
 
 the_end = 'the_end'
 suffix_ngrams = 'suffix_ngrams'
+prefix_ngrams = 'prefix_ngrams'
 indef_article = 'indef_article'
 
 a_bi_chunk = 'a_bi_chunk'
@@ -252,6 +253,26 @@ a_five_chunk = 'a_five_chunk'
 the_five_chunk = 'the_five_chunk'
 a_five_freq = 'a_five_freq'
 the_five_freq = 'the_five_freq'
+
+the_bi_freq_pref='the_bi_freq_pref'
+a_bi_freq_pref='a_bi_freq_pref'
+the_bi_chunk_pref='the_bi_chunk_pref'
+a_bi_chunk_pref='a_bi_chunk_pref'
+
+the_tree_freq_pref='the_tree_freq_pref'
+a_tree_freq_pref='a_tree_freq_pref'
+the_tree_chunk_pref='the_tree_chunk_pref'
+a_tree_chunk_pref='a_tree_chunk_pref'
+
+the_four_freq_pref='the_four_freq_pref'
+a_four_freq_pref='a_four_freq_pref'
+the_four_chunk_pref='the_four_chunk_pref'
+a_four_chunk_pref='a_four_chunk_pref'
+
+the_five_freq_pref='the_five_freq_pref'
+a_five_freq_pref='a_five_freq_pref'
+the_five_chunk_pref='the_five_chunk_pref'
+a_five_chunk_pref='a_five_chunk_pref'
 
 a_noun_chunk_freq = 'a_noun_chunk_freq'
 the_noun_chunk_freq = 'the_noun_chunk_freq'
@@ -286,6 +307,7 @@ def preprocessing_step1_general(x, sentence_index_val):
         attachment[sentence_index] = sentence_index_val
         attachment[the_end] = ' '.join(x[z][0] for z in range(i, len(x)))
         attachment[suffix_ngrams] = [x[z][0] for z in range(i + 1, len(x))][:4]
+        attachment[prefix_ngrams] = [x[z][0] for z in range(max(0, i-4), i)]
         attachment[article] = article_val
         attachment[correct_article] = correct_article_val
 
@@ -372,6 +394,7 @@ def preprocessin_step2(arr):
         sentence_index: [x[0][3][sentence_index] for x in l],
         the_end: [x[0][3][the_end] for x in l],
         suffix_ngrams: [x[0][3][suffix_ngrams] for x in l],
+        prefix_ngrams: [x[0][3][prefix_ngrams] for x in l],
         suffix_noun:[x[0][3][suffix_noun] for x in l],
         suffix_nounS:[x[0][3][suffix_nounS] for x in l]
     }
@@ -408,6 +431,24 @@ def preprocessin_step2(arr):
 
         return indef_art + ' ' + suf, 'the ' + suf
 
+    def get_n_gram_prefix_chunks(row, n):
+        ss = row[prefix_ngrams]
+        if len(ss) + 1 < n:
+            return None, None
+        indef_art = row[indef_article]
+        pref = ' '.join(ss[-(n-1):])
+
+        return pref + ' ' + indef_art, pref + ' the'
+
+
+    def get_n_pref_freq(row, col):
+        indef_art = row[indef_article]
+        pref = row[col]
+        if pref is None:
+            return None, None
+        return ngrams.get(pref + ' ' + indef_art, 0), ngrams.get(pref + ' the', 0)
+
+
     df[tmp] = df.apply(lambda row: get_n_gram_chunks(row, 2), axis=1)
     df[a_bi_chunk] = df[tmp].apply(lambda s: s[0])
     df[the_bi_chunk] = df[tmp].apply(lambda s: s[1])
@@ -435,6 +476,36 @@ def preprocessin_step2(arr):
     df[tmp] = df.apply(lambda row: get_n_gram_suff_freq(row, 5), axis=1)
     df[a_five_freq] = df[tmp].apply(lambda s: s[0])
     df[the_five_freq] = df[tmp].apply(lambda s: s[1])
+
+
+    df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
+    df[a_bi_chunk_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_bi_chunk_pref] = df[tmp].apply(lambda s: s[1])
+    df[tmp] = df.apply(lambda row: get_n_pref_freq(row, 2), axis=1)
+    df[a_bi_freq_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_bi_freq_pref] = df[tmp].apply(lambda s: s[1])
+
+    df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
+    df[a_tree_chunk_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_tree_chunk_pref] = df[tmp].apply(lambda s: s[1])
+    df[tmp] = df.apply(lambda row: get_n_pref_freq(row, 2), axis=1)
+    df[a_tree_freq_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_tree_freq_pref] = df[tmp].apply(lambda s: s[1])
+
+    df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
+    df[a_four_chunk_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_four_chunk_pref] = df[tmp].apply(lambda s: s[1])
+    df[tmp] = df.apply(lambda row: get_n_pref_freq(row, 2), axis=1)
+    df[a_four_freq_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_four_freq_pref] = df[tmp].apply(lambda s: s[1])
+
+    df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
+    df[a_five_chunk_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_five_chunk_pref] = df[tmp].apply(lambda s: s[1])
+    df[tmp] = df.apply(lambda row: get_n_pref_freq(row, 2), axis=1)
+    df[a_five_freq_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_five_freq_pref] = df[tmp].apply(lambda s: s[1])
+
 
 
     df[tmp] = df.apply(lambda row: get_n_suff_freq(row, suffix_noun), axis=1)
