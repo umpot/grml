@@ -36,5 +36,11 @@ def evaluate(text_file, correct_file, submission_file):
     print 'accuracy (just for info) = %.2f %%' % (acc * 100)
 
 
-if __name__ == '__main__':
-    evaluate('data/sentence_test.txt', 'data/corrections_test.txt', 'data/submission_test.txt')
+# if __name__ == '__main__':
+#     evaluate('data/sentence_test.txt', 'data/corrections_test.txt', 'data/submission_test.txt')
+
+text_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/sentence_test.txt'
+correct_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/corrections_test.txt'
+submission_file='/home/ubik/PycharmProjects/grml/src/test_submition.json'
+# submission_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/submission_test.txt'
+evaluate(text_file, correct_file, submission_file)

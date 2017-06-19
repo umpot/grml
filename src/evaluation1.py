@@ -6,6 +6,9 @@ import xgboost as xgb
 import matplotlib.pyplot as plt
 
 
+art_map = {'a':0, 'an':1, 'the':2}
+inverse_art_map={0:'a', 1:'an', 2:'the'}
+
 
 def is_indefinite_article(a):
     return a in {'a', 'an'}
@@ -104,7 +107,7 @@ def arr_to_df(arr):
 
 
 def to_xgb_df(df):
-    art_map = {'a':0, 'an':1, 'the':2}
+
     df[article]=df[article].apply(lambda s: art_map[s])
     df[correct_article]=df[correct_article].apply(lambda s: art_map[s])
 
@@ -120,7 +123,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_bi_ratio_1']=df.apply(
-        lambda row: normalized_ratio(row, the_bi_freq, the_bi_freq, 1),
+        lambda row: normalized_ratio(row, the_bi_freq, a_bi_freq, 1),
         axis=1
     )
 
@@ -129,7 +132,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_bi_ratio_10']=df.apply(
-        lambda row: normalized_ratio(row, the_bi_freq, the_bi_freq, 10),
+        lambda row: normalized_ratio(row, the_bi_freq, a_bi_freq, 10),
         axis=1
     )
 
@@ -138,7 +141,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_bi_ratio_100']=df.apply(
-        lambda row: normalized_ratio(row, the_bi_freq, the_bi_freq, 100),
+        lambda row: normalized_ratio(row, the_bi_freq, a_bi_freq, 100),
         axis=1
     )
 
@@ -147,7 +150,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_three_ratio_1']=df.apply(
-        lambda row: normalized_ratio(row, the_three_freq, the_three_freq, 1),
+        lambda row: normalized_ratio(row, the_three_freq, a_three_freq, 1),
         axis=1
     )
 
@@ -156,7 +159,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_three_ratio_10']=df.apply(
-        lambda row: normalized_ratio(row, the_three_freq, the_three_freq, 10),
+        lambda row: normalized_ratio(row, the_three_freq, a_three_freq, 10),
         axis=1
     )
 
@@ -165,7 +168,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_three_ratio_100']=df.apply(
-        lambda row: normalized_ratio(row, the_three_freq, the_three_freq, 100),
+        lambda row: normalized_ratio(row, the_three_freq, a_three_freq, 100),
         axis=1
     )
 
@@ -174,7 +177,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_four_ratio_1']=df.apply(
-        lambda row: normalized_ratio(row, the_four_freq, the_four_freq, 1),
+        lambda row: normalized_ratio(row, the_four_freq, a_four_freq, 1),
         axis=1
     )
 
@@ -183,7 +186,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_four_ratio_10']=df.apply(
-        lambda row: normalized_ratio(row, the_four_freq, the_four_freq, 10),
+        lambda row: normalized_ratio(row, the_four_freq, a_four_freq, 10),
         axis=1
     )
 
@@ -192,7 +195,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_four_ratio_100']=df.apply(
-        lambda row: normalized_ratio(row, the_four_freq, the_four_freq, 100),
+        lambda row: normalized_ratio(row, the_four_freq, a_four_freq, 100),
         axis=1
     )
 
@@ -201,7 +204,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_five_ratio_1']=df.apply(
-        lambda row: normalized_ratio(row, the_five_freq, the_five_freq, 1),
+        lambda row: normalized_ratio(row, the_five_freq, a_five_freq, 1),
         axis=1
     )
 
@@ -210,7 +213,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_five_ratio_10']=df.apply(
-        lambda row: normalized_ratio(row, the_five_freq, the_five_freq, 10),
+        lambda row: normalized_ratio(row, the_five_freq, a_five_freq, 10),
         axis=1
     )
 
@@ -219,7 +222,7 @@ def to_xgb_df(df):
         axis=1
     )
     df['the_five_ratio_100']=df.apply(
-        lambda row: normalized_ratio(row, the_five_freq, the_five_freq, 100),
+        lambda row: normalized_ratio(row, the_five_freq, a_five_freq, 100),
         axis=1
     )
 
@@ -257,28 +260,94 @@ def to_xgb_df(df):
         'a_five_ratio_1',
 
         st_with_v,
+        article,
+        correct_article
 
     ]
 
     return cols
 
 
+def create_splits(df, cv, seed=42):
+    s_indexes = set(df[sentence_index])
+    np.random.seed(seed)
+    m = {j: np.random.randint(0, cv) for j in s_indexes}
+    df['fold'] = df[sentence_index].apply(lambda s: m[s])
+    res = []
+    for f in range(cv):
+        train = df[df['fold']!=f]
+        test = df[df['fold']==f]
+        res.append((train, test))
 
-def perform_xgboost():
+    return res
+
+
+
+def add_corrections_cols(df):
+    def get_corrections(row):
+        a = row['a']
+        an = row['an']
+        the = row['the']
+
+        s = [(a, 'a'), (an, 'an'), (the, 'the')]
+        s.sort(key=lambda s: s[0], reverse=True)
+
+        proposed_correction = s[0][1]
+        art_val = row[article]
+        if proposed_correction == art_val:
+            return None, None
+        else:
+            return proposed_correction, s[0][0]
+
+    df[tmp] = df.apply(get_corrections, axis=1)
+    df[correction] = df[tmp].apply(lambda s: s[0])
+    df[confidence] = df[tmp].apply(lambda s: s[1])
+
+
+def df_to_submit_array(df, sentences):
+    res = [[None]*len(x) for x in sentences]
+
+    def collect_corrections_info(row):
+        correction_val = row[correction]
+        confidence_val = row[confidence]
+        sentence_index_val = row[sentence_index]
+        position_val  = row[position]
+
+        if correction_val is None:
+            return
+
+        res[sentence_index_val][position_val] = (correction_val, confidence_val)
+
+    df.apply(collect_corrections_info, axis=1)
+
+    # res = [(k,v) for k,v in res.iteritems()]
+    # res.sort(key=lambda s: s[0])
+    # res = [x[1] for x in res]
+
+    return res
+
+
+def submit_xgb_test():
+    train_arr = load_train()
+    test_arr = load_test()
+    df = test_arr.copy()
+
     TARGET = correct_article
-    train_arr, test_arr = load_train_cv()
     cols = to_xgb_df(train_arr)
     cols = to_xgb_df(test_arr)
 
+    train_arr = train_arr[cols]
+    test_arr=test_arr[cols]
+
+    print len(train_arr), len(test_arr)
     train_target = train_arr[TARGET]
     del train_arr[TARGET]
 
     test_target = test_arr[TARGET]
     del test_arr[TARGET]
+    print test_target.head()
 
-    train_arr, test_arr = train_arr[cols], test_arr[cols]
-
-    estimator = xgb.XGBClassifier(n_estimators=10000,
+    estimator = xgb.XGBClassifier(n_estimators=100,
                                   subsample=0.8,
                                   colsample_bytree=0.8,
                                   max_depth=5,
@@ -288,25 +357,139 @@ def perform_xgboost():
                                   )
     print test_arr.columns.values
 
-    eval_set = [(train_arr, train_target), (test_arr, test_target)]
     estimator.fit(
         train_arr, train_target,
-        eval_set=eval_set,
-        eval_metric='mlogloss',
-        verbose=True,
-        early_stopping_rounds=50
+        verbose=True
     )
 
-    xgb.plot_importance(estimator)
-    plt.show()
-
-
-    # plot_importance(estimator)
-    # pyplot.show()
-
     proba = estimator.predict_proba(test_arr)
-    loss = log_loss(test_target, proba)
-    print loss
+
+    classes = list(estimator.classes_)
+    print classes
+
+    for c in  classes:
+        col = inverse_art_map[c]
+        test_arr[col] =proba[:,classes.index(c)]
+        df.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
+
+    add_corrections_cols(df)
+    sentences = load_test_arr()
+    res = df_to_submit_array(df, sentences)
+
+    json.dump(res, open('test_submition.json', 'w+'))
+
+    return res
+
+
+def submit_xgb_out_of_fold_pred(df):
+    # df = load_train()
+    # create_out_of_fold_xgb_predictions(df)
+    # df=None
+    add_corrections_cols(df)
+
+    stats = submit_train(df)
+
+    return arr_to_df(stats['w']), arr_to_df(stats['r'])
+
+
+
+def create_out_of_fold_xgb_predictions(df):
+    # df = load_train()
+    TARGET = correct_article
+    cols = to_xgb_df(df)
+    losses = []
+    for train_arr, test_arr in create_splits(df, 3):
+        train_arr = train_arr[cols]
+        test_arr=test_arr[cols]
+
+        print len(train_arr), len(test_arr)
+        train_target = train_arr[TARGET]
+        del train_arr[TARGET]
+
+        test_target = test_arr[TARGET]
+        del test_arr[TARGET]
+
+        # train_arr, test_arr = train_arr[cols], test_arr[cols]
+
+        estimator = xgb.XGBClassifier(n_estimators=100,
+                                      subsample=0.8,
+                                      colsample_bytree=0.8,
+                                      max_depth=5,
+                                      # learning_rate=learning_rate,
+                                      objective='mlogloss',
+                                      nthread=-1
+                                      )
+        print test_arr.columns.values
+
+        estimator.fit(
+            train_arr, train_target,
+            verbose=True
+        )
+
+
+        proba = estimator.predict_proba(test_arr)
+
+        classes = list(estimator.classes_)
+        print classes
+
+        for c in  classes:
+            col = inverse_art_map[c]
+            test_arr[col] =proba[:,classes.index(c)]
+            df.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
+
+        loss = log_loss(test_target, proba)
+        losses.append(loss)
+        print loss
+
+
+
+def perform_xgboost_cv(df):
+    # df = load_train()
+    TARGET = correct_article
+    cols = to_xgb_df(df)
+    losses = []
+    for train_arr, test_arr in create_splits(df, 3):
+        train_arr = train_arr[cols]
+        test_arr=test_arr[cols]
+
+        print len(train_arr), len(test_arr)
+        train_target = train_arr[TARGET]
+        del train_arr[TARGET]
+
+        test_target = test_arr[TARGET]
+        del test_arr[TARGET]
+
+        # train_arr, test_arr = train_arr[cols], test_arr[cols]
+
+        estimator = xgb.XGBClassifier(n_estimators=10000,
+                                      subsample=0.8,
+                                      colsample_bytree=0.8,
+                                      max_depth=5,
+                                      # learning_rate=learning_rate,
+                                      objective='mlogloss',
+                                      nthread=-1
+                                      )
+        print test_arr.columns.values
+
+        eval_set = [(train_arr, train_target), (test_arr, test_target)]
+        estimator.fit(
+            train_arr, train_target,
+            eval_set=eval_set,
+            eval_metric='mlogloss',
+            verbose=True,
+            early_stopping_rounds=50
+        )
+        classes = list(estimator.classes_)
+        print classes
+
+
+        xgb.plot_importance(estimator)
+        plt.show()
+
+        proba = estimator.predict_proba(test_arr)
+        loss = log_loss(test_target, proba)
+        losses.append(loss)
+        print loss
 
 
 
