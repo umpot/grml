@@ -586,7 +586,7 @@ def is_indefinite_article(a):
 def is_definite_article(a):
     return a == 'the'
 
-def process_max_ngram_freq_naive(df, conf_level, max_sum=2):
+def process_max_ngram_freq_naive(df, conf_level, max_sum=2, a_an_score=5):
     for col in [correction, confidence]:
         if col in df:
             del col
@@ -603,26 +603,35 @@ def process_max_ngram_freq_naive(df, conf_level, max_sum=2):
     def fix(row):
         art = row[article]
         a_art = row[indef_article]
+        if row[difficult]:#row[ngram_confidence_level] < conf_cuttof
+            return None, None
         if row[a_five_freq] is not None and row[a_five_freq]+ row[the_five_freq]>max_sum:
             a_score, the_score = get_scores(row, a_five_freq, the_five_freq)
             if is_definite_article(art) and a_score>=conf_level:
-                return a_art, a_score
+                return a_art, a_score*2
             if is_indefinite_article(art) and the_score >= conf_level:
-                return 'the', the_score
+                return 'the', the_score*2
+            if is_indefinite_article(art) and art != a_art and a_score>=conf_level:
+                return a_art, a_an_score*2
+
 
         if row[a_four_freq] is not None and row[a_four_freq]+ row[the_four_freq]>max_sum:
             a_score, the_score = get_scores(row, a_four_freq, the_four_freq)
             if is_definite_article(art) and a_score>=conf_level:
-                return a_art, a_score
+                return a_art, a_score*1.7
             if is_indefinite_article(art) and the_score >= conf_level:
-                return 'the', the_score
+                return 'the', the_score*1.7
+            if is_indefinite_article(art) and art != a_art and a_score>=conf_level:
+                return a_art, a_an_score*1.7
 
         if row[a_three_freq] is not None and row[a_three_freq]+ row[the_three_freq]>max_sum:
             a_score, the_score = get_scores(row, a_three_freq, the_three_freq)
             if is_definite_article(art) and a_score>=conf_level:
-                return a_art, a_score
+                return a_art, a_score*1.3
             if is_indefinite_article(art) and the_score >= conf_level:
-                return 'the', the_score
+                return 'the', the_score*1.3
+            if is_indefinite_article(art) and art != a_art and a_score>=conf_level:
+                return a_art, a_an_score*1.3
 
         if row[a_bi_freq] is not None and row[a_bi_freq]+ row[the_bi_freq]>max_sum:
             a_score, the_score = get_scores(row, a_bi_freq, the_bi_freq)
@@ -630,6 +639,8 @@ def process_max_ngram_freq_naive(df, conf_level, max_sum=2):
                 return a_art, a_score
             if is_indefinite_article(art) and the_score >= conf_level:
                 return 'the', the_score
+            if is_indefinite_article(art) and art != a_art and a_score>=conf_level:
+                return a_art, a_an_score
 
 
         return None, None
@@ -650,7 +661,7 @@ def process_max_ngram_freq_naive(df, conf_level, max_sum=2):
             'cand': [x['s'][0] for x in ss],
             'the_count': [x['s'][2] for x in ss],
             'a_count': [x['s'][3] for x in ss],
-            # 'score': [x['s'][1] for x in ss],
+            'score': [x['s'][1] for x in ss],
             'suffix': [x['s'][4] for x in ss],
             the_end: [x['s'][5] for x in ss]
         }
@@ -754,3 +765,4 @@ def create_submission_arr(df, sents):
 #     [a_bi_chunk, the_bi_chunk, a_bi_freq, the_bi_freq, a_three_chunk, the_three_chunk, a_three_freq, the_three_freq,
 #      a_four_chunk, the_four_chunk, a_four_freq, the_four_freq, a_five_chunk, the_five_chunk, a_five_freq,
 #      the_five_freq]]
+# bad, good = process_max_ngram_freq_naive(train_df, 5)
