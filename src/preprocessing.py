@@ -259,10 +259,10 @@ a_bi_freq_pref='a_bi_freq_pref'
 the_bi_chunk_pref='the_bi_chunk_pref'
 a_bi_chunk_pref='a_bi_chunk_pref'
 
-the_tree_freq_pref='the_tree_freq_pref'
-a_tree_freq_pref='a_tree_freq_pref'
-the_tree_chunk_pref='the_tree_chunk_pref'
-a_tree_chunk_pref='a_tree_chunk_pref'
+the_three_freq_pref= 'the_three_freq_pref'
+a_three_freq_pref= 'a_three_freq_pref'
+the_three_chunk_pref= 'the_three_chunk_pref'
+a_three_chunk_pref= 'a_three_chunk_pref'
 
 the_four_freq_pref='the_four_freq_pref'
 a_four_freq_pref='a_four_freq_pref'
@@ -441,11 +441,13 @@ def preprocessin_step2(arr):
         return pref + ' ' + indef_art, pref + ' the'
 
 
-    def get_n_pref_freq(row, col):
-        indef_art = row[indef_article]
-        pref = row[col]
-        if pref is None:
+    def get_n_pref_freq(row, n):
+        ss = row[prefix_ngrams]
+        if len(ss) + 1 < n:
             return None, None
+        indef_art = row[indef_article]
+        pref = ' '.join(ss[-(n-1):])
+
         return ngrams.get(pref + ' ' + indef_art, 0), ngrams.get(pref + ' the', 0)
 
 
@@ -486,11 +488,11 @@ def preprocessin_step2(arr):
     df[the_bi_freq_pref] = df[tmp].apply(lambda s: s[1])
 
     df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
-    df[a_tree_chunk_pref] = df[tmp].apply(lambda s: s[0])
-    df[the_tree_chunk_pref] = df[tmp].apply(lambda s: s[1])
+    df[a_three_chunk_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_three_chunk_pref] = df[tmp].apply(lambda s: s[1])
     df[tmp] = df.apply(lambda row: get_n_pref_freq(row, 2), axis=1)
-    df[a_tree_freq_pref] = df[tmp].apply(lambda s: s[0])
-    df[the_tree_freq_pref] = df[tmp].apply(lambda s: s[1])
+    df[a_three_freq_pref] = df[tmp].apply(lambda s: s[0])
+    df[the_three_freq_pref] = df[tmp].apply(lambda s: s[1])
 
     df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
     df[a_four_chunk_pref] = df[tmp].apply(lambda s: s[0])

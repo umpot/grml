@@ -226,6 +226,117 @@ def to_xgb_df(df):
         axis=1
     )
 
+
+    df['pref_a_bi_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, a_bi_freq_pref, the_bi_freq_pref, 1),
+        axis=1
+    )
+    df['pref_the_bi_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, the_bi_freq_pref, a_bi_freq_pref, 1),
+        axis=1
+    )
+
+    df['pref_a_bi_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, a_bi_freq_pref, the_bi_freq_pref, 10),
+        axis=1
+    )
+    df['pref_the_bi_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, the_bi_freq_pref, a_bi_freq_pref, 10),
+        axis=1
+    )
+
+    df['pref_a_bi_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, a_bi_freq_pref, the_bi_freq_pref, 100),
+        axis=1
+    )
+    df['pref_the_bi_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, the_bi_freq_pref, a_bi_freq_pref, 100),
+        axis=1
+    )
+
+    df['pref_a_three_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, a_three_freq_pref, the_three_freq_pref, 1),
+        axis=1
+    )
+    df['pref_the_three_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, the_three_freq_pref, a_three_freq_pref, 1),
+        axis=1
+    )
+
+    df['pref_a_three_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, a_three_freq_pref, the_three_freq_pref, 10),
+        axis=1
+    )
+    df['pref_the_three_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, the_three_freq_pref, a_three_freq_pref, 10),
+        axis=1
+    )
+
+    df['pref_a_three_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, a_three_freq_pref, the_three_freq_pref, 100),
+        axis=1
+    )
+    df['pref_the_three_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, the_three_freq_pref, a_three_freq_pref, 100),
+        axis=1
+    )
+
+    df['pref_a_four_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, a_four_freq_pref, the_four_freq_pref, 1),
+        axis=1
+    )
+    df['pref_the_four_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, the_four_freq_pref, a_four_freq_pref, 1),
+        axis=1
+    )
+
+    df['pref_a_four_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, a_four_freq_pref, the_four_freq_pref, 10),
+        axis=1
+    )
+    df['pref_the_four_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, the_four_freq_pref, a_four_freq_pref, 10),
+        axis=1
+    )
+
+    df['pref_a_four_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, a_four_freq_pref, the_four_freq_pref, 100),
+        axis=1
+    )
+    df['pref_the_four_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, the_four_freq_pref, a_four_freq_pref, 100),
+        axis=1
+    )
+
+    df['pref_a_five_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, a_five_freq_pref, the_five_freq_pref, 1),
+        axis=1
+    )
+    df['pref_the_five_ratio_1']=df.apply(
+        lambda row: normalized_ratio(row, the_five_freq_pref, a_five_freq_pref, 1),
+        axis=1
+    )
+
+    df['pref_a_five_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, a_five_freq_pref, the_five_freq_pref, 10),
+        axis=1
+    )
+    df['pref_the_five_ratio_10']=df.apply(
+        lambda row: normalized_ratio(row, the_five_freq_pref, a_five_freq_pref, 10),
+        axis=1
+    )
+
+    df['pref_a_five_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, a_five_freq_pref, the_five_freq_pref, 100),
+        axis=1
+    )
+    df['pref_the_five_ratio_100']=df.apply(
+        lambda row: normalized_ratio(row, the_five_freq_pref, a_five_freq_pref, 100),
+        axis=1
+    )
+
+    print 'suka {}'.format('pref_the_bi_ratio_100' in df.columns)
+
     cols = [
         a_bi_freq, the_bi_freq,
         a_three_freq, the_three_freq,
@@ -259,11 +370,42 @@ def to_xgb_df(df):
         'the_five_ratio_1',
         'a_five_ratio_1',
 
+
+        'pref_the_bi_ratio_100',
+        'pref_a_bi_ratio_100',
+        'pref_the_bi_ratio_10',
+        'pref_a_bi_ratio_10',
+        'pref_the_bi_ratio_1',
+        'pref_a_bi_ratio_1',
+
+        'pref_the_three_ratio_100',
+        'pref_a_three_ratio_100',
+        'pref_the_three_ratio_10',
+        'pref_a_three_ratio_10',
+        'pref_the_three_ratio_1',
+        'pref_a_three_ratio_1',
+
+        'pref_the_four_ratio_100',
+        'pref_a_four_ratio_100',
+        'pref_the_four_ratio_10',
+        'pref_a_four_ratio_10',
+        'pref_the_four_ratio_1',
+        'pref_a_four_ratio_1',
+
+        'pref_the_five_ratio_100',
+        'pref_a_five_ratio_100',
+        'pref_the_five_ratio_10',
+        'pref_a_five_ratio_10',
+        'pref_the_five_ratio_1',
+        'pref_a_five_ratio_1',
+
         st_with_v,
         article,
         correct_article
 
     ]
+
+    print 'blja {}'.format('pref_the_bi_ratio_100' in cols)
 
     return cols
 
