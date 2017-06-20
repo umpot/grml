@@ -99,9 +99,9 @@ def arr_to_df(arr):
     m = OrderedDict((c, [None if x is None else x[c] for x in arr]) for c in cols)
     df= pd.DataFrame(m)
 
-    df['trans'] = df[article]+'->'+df[correction].apply(str)
+    df['trans'] = df[article]+'->'+df[correction].apply(str)#.apply(lambda s: inverse_art_map[s])
     # add_short_freq_cols(df)
-    cols = ['trans', confidence, solution_details, sentence_index,suffix_ngrams]
+    cols = ['trans', confidence]
 
     return df[cols]
 
@@ -118,9 +118,18 @@ def to_xgb_df(df):
             return None
         return (float(prior) + a) / (float(prior) + b)
 
+    def normalized_ratio1(row, col1, col2, prior):
+        a = row[col1]
+        b = row[col2]
+        if a is None:
+            return None
+        return (float(prior) + a) / (2*float(prior) + b+a)
+
     def create_normalized_ratio_col(d, col1, col2, new_col, prior):
         d[new_col] = d.apply(lambda row: normalized_ratio(row, col1, col2, prior), axis=1)
 
+    def create_normalized_ratio_col1(d, col1, col2, new_col, prior):
+        d[new_col] = d.apply(lambda row: normalized_ratio1(row, col1, col2, prior), axis=1)
 
     col_pairs=[
         (a_bi_freq_suff, the_bi_freq_suff, 'bi_freq_suff'),
@@ -135,8 +144,10 @@ def to_xgb_df(df):
     ]
 
     frequencies_cols = [x[0] for x in col_pairs]+[x[1] for x in col_pairs]
+    # frequencies_cols=[]
 
-    for prior in [1,10,100]:
+
+    for prior in [1, 10, 100]:
         for a_col, the_col, name in col_pairs:
             new_col = 'a_the_{}_p{}'.format(name, prior)
             create_normalized_ratio_col(df, a_col, the_col, new_col, prior)
@@ -146,18 +157,25 @@ def to_xgb_df(df):
             create_normalized_ratio_col(df, the_col, a_col, new_col, prior)
             frequencies_cols.append(new_col)
 
-    cols_to_exclude = [
-        'the_bi_freq_pref', 'the_three_freq_pref',
-        'the_four_freq_pref' ,'the_five_freq_pref',
-        'a_bi_freq_pref', 'a_three_freq_pref',
-        'a_four_freq_pref', 'a_five_freq_pref'
-    ]
-
-    frequencies_cols = list(set(frequencies_cols).difference(set(cols_to_exclude)))
+    # cols_to_exclude = [
+    #     'the_bi_freq_pref', 'the_three_freq_pref',
+    #     'the_four_freq_pref' ,'the_five_freq_pref',
+    #     'a_bi_freq_pref', 'a_three_freq_pref',
+    #     'a_four_freq_pref', 'a_five_freq_pref'
+    # ]
+    #
+    # frequencies_cols = list(set(frequencies_cols).difference(set(cols_to_exclude)))
 
     cols = frequencies_cols + [st_with_v,article, correct_article]
 
-    return cols
+    df, new_cols = add_dummy_cols_df(df, raw_prev_token_POS, prev_token_tags)
+    cols+=new_cols
+
+    df, new_cols = add_dummy_cols_df(df, raw_next_token_POS, next_token_tags)
+    cols+=new_cols
+
+
+    return df, cols
 
 
 def create_splits(df, cv, seed=42):
@@ -225,8 +243,8 @@ def submit_xgb_test():
     df = test_arr.copy()
 
     TARGET = correct_article
-    cols = to_xgb_df(train_arr)
-    cols = to_xgb_df(test_arr)
+    df, cols = to_xgb_df(train_arr)
+    df, cols = to_xgb_df(test_arr)
 
     train_arr = train_arr[cols]
     test_arr=test_arr[cols]
@@ -239,7 +257,7 @@ def submit_xgb_test():
     del test_arr[TARGET]
     print test_target.head()
 
-    estimator = xgb.XGBClassifier(n_estimators=100,
+    estimator = xgb.XGBClassifier(n_estimators=180,
                                   subsample=0.8,
                                   colsample_bytree=0.8,
                                   max_depth=5,
@@ -275,7 +293,7 @@ def submit_xgb_test():
 
 def submit_xgb_out_of_fold_pred(df):
     # df = load_train()
-    create_out_of_fold_xgb_predictions(df)
+    df = create_out_of_fold_xgb_predictions(df)
     add_corrections_cols(df)
 
     stats = submit_train(df)
@@ -287,7 +305,8 @@ def submit_xgb_out_of_fold_pred(df):
 def create_out_of_fold_xgb_predictions(df):
     # df = load_train()
     TARGET = correct_article
-    cols = to_xgb_df(df)
+    df_cp = df.copy()
+    df, cols = to_xgb_df(df)
     losses = []
     for train_arr, test_arr in create_splits(df, 3):
         train_arr = train_arr[cols]
@@ -302,7 +321,7 @@ def create_out_of_fold_xgb_predictions(df):
 
         # train_arr, test_arr = train_arr[cols], test_arr[cols]
 
-        estimator = xgb.XGBClassifier(n_estimators=100,
+        estimator = xgb.XGBClassifier(n_estimators=180,
                                       subsample=0.8,
                                       colsample_bytree=0.8,
                                       max_depth=5,
@@ -326,18 +345,20 @@ def create_out_of_fold_xgb_predictions(df):
         for c in  classes:
             col = inverse_art_map[c]
             test_arr[col] =proba[:,classes.index(c)]
-            df.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
+            df_cp.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
 
         loss = log_loss(test_target, proba)
         losses.append(loss)
         print loss
+
+    return df_cp
 
 
 
 def perform_xgboost_cv(df):
     # df = load_train()
     TARGET = correct_article
-    cols = to_xgb_df(df)
+    df, cols = to_xgb_df(df)
     losses = []
     for train_arr, test_arr in create_splits(df, 3):
         train_arr = train_arr[cols]
@@ -383,34 +404,34 @@ def perform_xgboost_cv(df):
         print loss
 
 
-cols=['a_bi_freq_suff' 'a_three_freq_suff' 'a_four_freq_suff' 'a_five_freq_suff'
-      'a_bi_freq_pref' 'a_three_freq_pref' 'a_four_freq_pref' 'a_five_freq_pref'
-      'the_bi_freq_suff' 'the_three_freq_suff' 'the_four_freq_suff'
-      'the_five_freq_suff' 'the_bi_freq_pref' 'the_three_freq_pref'
-      'the_four_freq_pref' 'the_five_freq_pref' 'a_the_bi_freq_suff_p1'
-      'the_a_bi_freq_suff_p1' 'a_the_three_freq_suff_p1'
-      'the_a_three_freq_suff_p1' 'a_the_four_freq_suff_p1'
-      'the_a_four_freq_suff_p1' 'a_the_five_freq_suff_p1'
-      'the_a_five_freq_suff_p1' 'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1'
-      'a_the_three_freq_pref_p1' 'the_a_three_freq_pref_p1'
-      'a_the_four_freq_pref_p1' 'the_a_four_freq_pref_p1'
-      'a_the_five_freq_pref_p1' 'the_a_five_freq_pref_p1'
-      'a_the_bi_freq_suff_p10' 'the_a_bi_freq_suff_p10'
-      'a_the_three_freq_suff_p10' 'the_a_three_freq_suff_p10'
-      'a_the_four_freq_suff_p10' 'the_a_four_freq_suff_p10'
-      'a_the_five_freq_suff_p10' 'the_a_five_freq_suff_p10'
-      'a_the_bi_freq_pref_p10' 'the_a_bi_freq_pref_p10'
-      'a_the_three_freq_pref_p10' 'the_a_three_freq_pref_p10'
-      'a_the_four_freq_pref_p10' 'the_a_four_freq_pref_p10'
-      'a_the_five_freq_pref_p10' 'the_a_five_freq_pref_p10'
-      'a_the_bi_freq_suff_p100' 'the_a_bi_freq_suff_p100'
-      'a_the_three_freq_suff_p100' 'the_a_three_freq_suff_p100'
-      'a_the_four_freq_suff_p100' 'the_a_four_freq_suff_p100'
-      'a_the_five_freq_suff_p100' 'the_a_five_freq_suff_p100'
-      'a_the_bi_freq_pref_p100' 'the_a_bi_freq_pref_p100'
-      'a_the_three_freq_pref_p100' 'the_a_three_freq_pref_p100'
-      'a_the_four_freq_pref_p100' 'the_a_four_freq_pref_p100'
-      'a_the_five_freq_pref_p100' 'the_a_five_freq_pref_p100' 'st_with_v'
+cols=['a_bi_freq_suff' ,'a_three_freq_suff' ,'a_four_freq_suff', 'a_five_freq_suff',
+      'a_bi_freq_pref' ,'a_three_freq_pref' ,'a_four_freq_pref' ,'a_five_freq_pref',
+      'the_bi_freq_suff', 'the_three_freq_suff', 'the_four_freq_suff',
+      'the_five_freq_suff', 'the_bi_freq_pref' ,'the_three_freq_pref',
+      'the_four_freq_pref' ,'the_five_freq_pref' ,'a_the_bi_freq_suff_p1',
+      'the_a_bi_freq_suff_p1' ,'a_the_three_freq_suff_p1',
+      'the_a_three_freq_suff_p1' ,'a_the_four_freq_suff_p1',
+      'the_a_four_freq_suff_p1' ,'a_the_five_freq_suff_p1',
+      'the_a_five_freq_suff_p1' ,'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1',
+      'a_the_three_freq_pref_p1', 'the_a_three_freq_pref_p1',
+      'a_the_four_freq_pref_p1', 'the_a_four_freq_pref_p1',
+      'a_the_five_freq_pref_p1', 'the_a_five_freq_pref_p1',
+      'a_the_bi_freq_suff_p10', 'the_a_bi_freq_suff_p10',
+      'a_the_three_freq_suff_p10' ,'the_a_three_freq_suff_p10',
+      'a_the_four_freq_suff_p10' ,'the_a_four_freq_suff_p10',
+      'a_the_five_freq_suff_p10', 'the_a_five_freq_suff_p10',
+      'a_the_bi_freq_pref_p10', 'the_a_bi_freq_pref_p10',
+      'a_the_three_freq_pref_p10', 'the_a_three_freq_pref_p10',
+      'a_the_four_freq_pref_p10' ,'the_a_four_freq_pref_p10',
+      'a_the_five_freq_pref_p10' ,'the_a_five_freq_pref_p10',
+      'a_the_bi_freq_suff_p100', 'the_a_bi_freq_suff_p100',
+      'a_the_three_freq_suff_p100', 'the_a_three_freq_suff_p100',
+      'a_the_four_freq_suff_p100' ,'the_a_four_freq_suff_p100',
+      'a_the_five_freq_suff_p100' ,'the_a_five_freq_suff_p100',
+      'a_the_bi_freq_pref_p100', 'the_a_bi_freq_pref_p100',
+      'a_the_three_freq_pref_p100', 'the_a_three_freq_pref_p100',
+      'a_the_four_freq_pref_p100' ,'the_a_four_freq_pref_p100',
+      'a_the_five_freq_pref_p100' ,'the_a_five_freq_pref_p100' ,'st_with_v',
       'article']
 
 

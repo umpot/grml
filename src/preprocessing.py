@@ -49,6 +49,10 @@ fp_singular_nouns = 'singular_nouns'
 fp_plural_nouns = 'plural_nouns'
 fp_uncountable_nouns = 'uncountable_nouns'
 
+fp_dependencies_train='dependencies_train'
+fp_dependencies_test='dependencies_test'
+fp_dependencies_private_test='dependencies_private_test'
+
 def get(name):
     return os.path.join(data_folder, name)
 
@@ -116,6 +120,49 @@ VOWELS = {
     u'\u0259'
 
 }
+
+prev_token_tags = [u'IN',
+             u'VB',
+             u'VBZ',
+             u'VBD',
+             u'VBG',
+             u'CC',
+             u'RB',
+             u',',
+             u'VBP',
+             u'VBN',
+             u'PDT',
+             u'NN',
+             u'WRB',
+             u'RP',
+             u'PRP',
+             u':',
+             u'WP',
+             u'NNS',
+             u'NNP',
+             u'WDT',
+             u'JJ',
+             u'-LRB-',
+             u'``',
+             u'DT']
+
+next_token_tags=[u'NN',
+                 u'JJ',
+                 u'NNP',
+                 u'NNS',
+                 u'RB',
+                 u'``',
+                 u'NNPS',
+                 u'JJS',
+                 u'CD',
+                 u'DT',
+                 u'VBN',
+                 u'JJR',
+                 u'RBS',
+                 u'RBR']
+
+
+
 
 symbols_to_skip = '[\'\(\-\{\@]'  # {"'", '(', '-', '{'}
 #########################################################
@@ -224,6 +271,7 @@ difficult_suffix = 'difficult_suffix'
 suffix = 'suffix'
 difficult = 'difficult'
 raw_next_token_POS = 'raw_next_token_POS'
+raw_prev_token_POS = 'raw_prev_token_POS'
 position = 'position'
 correction = 'correction'
 confidence = 'confidence'
@@ -301,9 +349,15 @@ def preprocessing_step1_general(x, sentence_index_val):
         if correct_article_val is None:
             correct_article_val = article_val
 
+        if i==0:
+            raw_prev_token_POS_val=None
+        else:
+            raw_prev_token_POS_val = x[i - 1][2]
+
         attachment = {}
         attachment[raw_next_token] = x[i + 1][0]
         attachment[raw_next_token_POS] = x[i + 1][2]
+        attachment[raw_prev_token_POS] = raw_prev_token_POS_val
         attachment[position] = i
         attachment[sentence] = x
         attachment[sentence_index] = sentence_index_val
@@ -398,7 +452,9 @@ def preprocessin_step2(arr):
         suffix_ngrams: [x[0][3][suffix_ngrams] for x in l],
         prefix_ngrams: [x[0][3][prefix_ngrams] for x in l],
         suffix_noun:[x[0][3][suffix_noun] for x in l],
-        suffix_nounS:[x[0][3][suffix_nounS] for x in l]
+        suffix_nounS:[x[0][3][suffix_nounS] for x in l],
+        raw_next_token_POS:[x[0][3][raw_next_token_POS] for x in l],
+        raw_prev_token_POS:[x[0][3][raw_prev_token_POS] for x in l]
     }
 
     df = pd.DataFrame(m)
@@ -531,6 +587,14 @@ def preprocessin_step2(arr):
     df[correct] = df[article] == df[correct_article]
 
     return df
+
+
+def add_dummy_cols_df(df, col, vals):
+    new_cols = []
+    df[col] = df[col].apply(lambda s: s if s in vals else None)
+    new_cols+=['{}_{}'.format(col, v) for v in vals]
+
+    return pd.get_dummies(df, columns=[col]), new_cols
 
 
 

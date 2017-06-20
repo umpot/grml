@@ -1,0 +1,28 @@
+1)only priors=[1,10, 100]:
+    72.48 %
+2)all + prior=[10]
+    72.83 %
+
+3)all + prior=[100]
+    72.06 %
+
+4)all + prior=[1, 10, 100]
+    73.10 %
+
+5)all + prior=[1, 5, 10,30, 100]
+    72.68 %
+
+6)all + prior=[1, 5, 10,30, 100] n_est=180
+    72.88 %
+
+7)all + prior=[1, 10,100] n_est=180
+    73.23 %
+
+8)all + diff_ratio + prior=[1, 10,100] n_est=180
+    72.95 %
+
+9)all + prior + prev_next pos=[1, 10,100] n_est=180
+    73.23 %
+
+
+
