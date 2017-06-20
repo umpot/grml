@@ -1,0 +1,3575 @@
+/usr/bin/python2.7 /home/dpetrovskyi/pycharm/pycharm-2016.3.2/helpers/pydev/pydevconsole.py 59015 45058
+Python 2.7.6 (default, Jun 22 2015, 17:58:13)
+Type "copyright", "credits" or "license" for more information.
+IPython 5.3.0 -- An enhanced Interactive Python.
+?         -> Introduction and overview of IPython's features.
+%quickref -> Quick reference.
+help      -> Python's own help system.
+object?   -> Details about 'object', use 'object??' for extra details.
+PyDev console: using IPython 5.3.0
+import sys; print('Python %s on %s' % (sys.version, sys.platform))
+sys.path.extend(['/home/dpetrovskyi/PycharmProjects/quora', '/home/dpetrovskyi/PycharmProjects/grml', '/home/dpetrovskyi/PycharmProjects/cs224d', '/home/dpetrovskyi/PycharmProjects/kaggle', '/home/dpetrovskyi/PycharmProjects/fai', '/home/dpetrovskyi/PycharmProjects/courses', '/home/dpetrovskyi/PycharmProjects/grml/src'])
+Python 2.7.6 (default, Jun 22 2015, 17:58:13)
+[GCC 4.8.2] on linux2
+from sklearn.metrics import log_loss
+from preprocessing import *
+import pandas as pd
+import xgboost as xgb
+import matplotlib.pyplot as plt
+art_map = {'a':0, 'an':1, 'the':2}
+inverse_art_map={0:'a', 1:'an', 2:'the'}
+def is_indefinite_article(a):
+    return a in {'a', 'an'}
+def is_definite_article(a):
+    return a == 'the'
+def submit_train(df):
+    train_arr = load_train_arr()
+    corrections = load_resource(fp_corrections_train)
+    submit_arr = create_submission_arr(df, train_arr)
+    return evaluate(train_arr, corrections, submit_arr)
+def evaluate(text, correct, submission):
+    print len(text), len(correct), len(submission)
+    # with open(text_file) as f:
+    #     text = json.load(f)
+    # with open(correct_file) as f:
+    #     correct = json.load(f)
+    # with open(submission_file) as f:
+    #     submission = json.load(f)
+    data = []
+    for sent, cor, sub in izip_longest(text, correct, submission):
+        for w, c, s in izip_longest(sent, cor, sub):
+            if w in ['a', 'an', 'the']:
+                tel = None if s is None else s[2]
+                if s is None or s[0] == w:
+                    s = ['', float('-inf')]
+                # -score, ok-prediction, is_realy_error
+                data.append((-s[1], s[0] == c, c is not None, tel))
+                # -1, -0.8, -0.2, ... inf, inf
+    print 0.02 * len(data)
+    data.sort(key=lambda x: x[0])
+    fp2 = 0
+    fp = 0
+    tp = 0
+    all_mistakes = sum(x[2] for x in data)  # num of ALL incorrect
+    print 'all_mistakes {}'.format(all_mistakes)
+    score = 0
+    acc = 0
+    counter = 0
+    stats = {'w': [], 'r': []}
+    stop = False
+    for _, c, r, tel in data:
+        fp2 += not c  # wrong correction
+        fp += not r  # realy errors count
+        tp += c  # right correction
+        if not stop:
+            if not c:
+                stats['w'].append(tel)
+            if c:
+                stats['r'].append(tel)
+        acc = max(acc, 1 - (0. + fp + all_mistakes - tp) / len(data))
+        if fp2 * 1. / len(data) <= 0.02:
+            score = tp * 1. / all_mistakes
+        else:
+            stop = True
+    print 'target score = %.2f %%' % (score * 100)
+    print 'accuracy (just for info) = %.2f %%' % (acc * 100)
+    return stats
+def create_submission_arr(df, sents):
+    arr = [[None] * (len(x)) for x in sents]
+    cols = df.columns
+    def do_work(row):
+        if row[correction] is not None:
+            corr = row[correction]
+            conf = row[confidence]
+            sent_index = row[sentence_index]
+            pos = row[position]
+            arr[sent_index][pos] = (corr, conf, OrderedDict([(c,row[c]) for c in cols]))
+    df.apply(do_work, axis=1)
+    return arr
+def arr_to_df(arr):
+    cols = arr[0].keys()
+    m = OrderedDict((c, [None if x is None else x[c] for x in arr]) for c in cols)
+    df= pd.DataFrame(m)
+    df['trans'] = df[article]+'->'+df[correction].apply(str)#.apply(lambda s: inverse_art_map[s])
+    # add_short_freq_cols(df)
+    cols = ['trans', confidence]
+    return df[cols]
+def to_xgb_df(df):
+    df[article]=df[article].apply(lambda s: art_map[s])
+    df[correct_article]=df[correct_article].apply(lambda s: art_map[s])
+    def normalized_ratio(row, col1, col2, prior):
+        a = row[col1]
+        b = row[col2]
+        if a is None:
+            return None
+        return (float(prior) + a) / (float(prior) + b)
+    def normalized_ratio1(row, col1, col2, prior):
+        a = row[col1]
+        b = row[col2]
+        if a is None:
+            return None
+        return (float(prior) + a) / (2*float(prior) + b+a)
+    def create_normalized_ratio_col(d, col1, col2, new_col, prior):
+        d[new_col] = d.apply(lambda row: normalized_ratio(row, col1, col2, prior), axis=1)
+    def create_normalized_ratio_col1(d, col1, col2, new_col, prior):
+        d[new_col] = d.apply(lambda row: normalized_ratio1(row, col1, col2, prior), axis=1)
+    col_pairs=[
+        (a_bi_freq_suff, the_bi_freq_suff, 'bi_freq_suff'),
+        (a_three_freq_suff, the_three_freq_suff, 'three_freq_suff'),
+        (a_four_freq_suff, the_four_freq_suff, 'four_freq_suff'),
+        (a_five_freq_suff, the_five_freq_suff, 'five_freq_suff'),
+        (a_bi_freq_pref, the_bi_freq_pref, 'bi_freq_pref'),
+        (a_three_freq_pref, the_three_freq_pref, 'three_freq_pref'),
+        (a_four_freq_pref, the_four_freq_pref, 'four_freq_pref'),
+        (a_five_freq_pref, the_five_freq_pref, 'five_freq_pref')
+    ]
+    frequencies_cols = [x[0] for x in col_pairs]+[x[1] for x in col_pairs]
+    # frequencies_cols=[]
+    for prior in [1, 10, 100]:#
+        for a_col, the_col, name in col_pairs:
+            new_col = 'a_the_{}_p{}'.format(name, prior)
+            create_normalized_ratio_col(df, a_col, the_col, new_col, prior)
+            frequencies_cols.append(new_col)
+            new_col = 'the_a_{}_p{}'.format(name, prior)
+            create_normalized_ratio_col(df, the_col, a_col, new_col, prior)
+            frequencies_cols.append(new_col)
+    # cols_to_exclude = [
+    #     'the_bi_freq_pref', 'the_three_freq_pref',
+    #     'the_four_freq_pref' ,'the_five_freq_pref',
+    #     'a_bi_freq_pref', 'a_three_freq_pref',
+    #     'a_four_freq_pref', 'a_five_freq_pref'
+    # ]
+    #
+    # frequencies_cols = list(set(frequencies_cols).difference(set(cols_to_exclude)))
+    cols = frequencies_cols + [st_with_v,article, correct_article]
+    # df, new_cols = add_dummy_cols_df(df, raw_prev_token_POS, prev_token_tags)
+    # cols+=new_cols
+    #
+    # df, new_cols = add_dummy_cols_df(df, raw_next_token_POS, next_token_tags)
+    # cols+=new_cols
+    return df, cols
+def create_splits(df, cv, seed=42):
+    s_indexes = set(df[sentence_index])
+    np.random.seed(seed)
+    m = {j: np.random.randint(0, cv) for j in s_indexes}
+    df['fold'] = df[sentence_index].apply(lambda s: m[s])
+    res = []
+    for f in range(cv):
+        train = df[df['fold']!=f]
+        test = df[df['fold']==f]
+        res.append((train, test))
+    return res
+def add_corrections_cols(df):
+    def get_corrections(row):
+        a = row['a']
+        an = row['an']
+        the = row['the']
+        s = [(a, 'a'), (an, 'an'), (the, 'the')]
+        s.sort(key=lambda s: s[0], reverse=True)
+        proposed_correction = s[0][1]
+        art_val = row[article]
+        if proposed_correction == art_val:
+            return None, None
+        else:
+            return proposed_correction, s[0][0]
+    df[tmp] = df.apply(get_corrections, axis=1)
+    df[correction] = df[tmp].apply(lambda s: s[0])
+    df[confidence] = df[tmp].apply(lambda s: s[1])
+def df_to_submit_array(df, sentences):
+    res = [[None]*len(x) for x in sentences]
+    def collect_corrections_info(row):
+        correction_val = row[correction]
+        confidence_val = row[confidence]
+        sentence_index_val = row[sentence_index]
+        position_val  = row[position]
+        if correction_val is None:
+            return
+        res[sentence_index_val][position_val] = (correction_val, confidence_val)
+    df.apply(collect_corrections_info, axis=1)
+    # res = [(k,v) for k,v in res.iteritems()]
+    # res.sort(key=lambda s: s[0])
+    # res = [x[1] for x in res]
+    return res
+def submit_xgb_test():
+    train_arr = load_train()
+    test_arr = load_test()
+    df = test_arr.copy()
+    TARGET = correct_article
+    df, cols = to_xgb_df(train_arr)
+    df, cols = to_xgb_df(test_arr)
+    train_arr = train_arr[cols]
+    test_arr=test_arr[cols]
+    print len(train_arr), len(test_arr)
+    train_target = train_arr[TARGET]
+    del train_arr[TARGET]
+    test_target = test_arr[TARGET]
+    del test_arr[TARGET]
+    print test_target.head()
+    estimator = xgb.XGBClassifier(n_estimators=180,
+                                  subsample=0.8,
+                                  colsample_bytree=0.8,
+                                  max_depth=5,
+                                  # learning_rate=learning_rate,
+                                  objective='mlogloss',
+                                  nthread=-1
+                                  )
+    print test_arr.columns.values
+    estimator.fit(
+        train_arr, train_target,
+        verbose=True
+    )
+    proba = estimator.predict_proba(test_arr)
+    classes = list(estimator.classes_)
+    print classes
+    for c in  classes:
+        col = inverse_art_map[c]
+        test_arr[col] =proba[:,classes.index(c)]
+        df.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
+    add_corrections_cols(df)
+    sentences = load_test_arr()
+    res = df_to_submit_array(df, sentences)
+    json.dump(res, open('test_submition.json', 'w+'))
+    return res
+def submit_xgb_out_of_fold_pred(df):
+    # df = load_train()
+    df = create_out_of_fold_xgb_predictions(df)
+    add_corrections_cols(df)
+    stats = submit_train(df)
+    return arr_to_df(stats['w']), arr_to_df(stats['r'])
+def create_out_of_fold_xgb_predictions(df):
+    # df = load_train()
+    TARGET = correct_article
+    df_cp = df.copy()
+    df, cols = to_xgb_df(df)
+    losses = []
+    for train_arr, test_arr in create_splits(df, 3):
+        train_arr = train_arr[cols]
+        test_arr=test_arr[cols]
+        print len(train_arr), len(test_arr)
+        train_target = train_arr[TARGET]
+        del train_arr[TARGET]
+        test_target = test_arr[TARGET]
+        del test_arr[TARGET]
+        # train_arr, test_arr = train_arr[cols], test_arr[cols]
+        estimator = xgb.XGBClassifier(n_estimators=180,
+                                      subsample=0.8,
+                                      colsample_bytree=0.8,
+                                      max_depth=5,
+                                      # learning_rate=learning_rate,
+                                      objective='mlogloss',
+                                      nthread=-1
+                                      )
+        print test_arr.columns.values
+        estimator.fit(
+            train_arr, train_target,
+            verbose=True
+        )
+        proba = estimator.predict_proba(test_arr)
+        classes = list(estimator.classes_)
+        print classes
+        for c in  classes:
+            col = inverse_art_map[c]
+            test_arr[col] =proba[:,classes.index(c)]
+            df_cp.loc[test_arr.index, col] = test_arr.loc[test_arr.index, col]
+        loss = log_loss(test_target, proba)
+        losses.append(loss)
+        print loss
+    return df_cp
+def eval_target_score(arts, probs, labels):
+    sz=len(arts)
+    all_mistakes = sum(arts[j]!=labels[j] for j in range(sz))
+    data=[]
+    for j in range(sz):
+        p = probs[j]#probs
+        a=arts[j]#current article
+        correct_a = labels[j]#correct article
+        p = [(i, p[i]) for i in range(len(p))]
+        p.sort(key=lambda s: s[1], reverse=True)
+        s = p[0][0]
+        conf = p[0][1]
+        conf = float('-inf') if a==s else conf
+        c = s ==correct_a
+        data.append((-conf, c, correct_a!=a))
+    data.sort()
+    fp2 = 0
+    fp = 0
+    tp = 0
+    score = 0
+    acc = 0
+    for _, c, r in data:
+        fp2 += not c # wrong correction
+        fp += not r#realy errors count
+        tp += c#right correction
+        acc = max(acc, 1 - (0. + fp + all_mistakes - tp) / len(data))
+        if fp2 * 1. / len(data) <= 0.02:
+            score = tp * 1. / all_mistakes
+    print 'target score = %.2f %%' % (score * 100)
+    print 'accuracy (just for info) = %.2f %%' % (acc * 100)
+    return 'target_score'  , -score
+def perform_xgboost_cv(df):
+    # df = load_train()
+    TARGET = correct_article
+    df, cols = to_xgb_df(df)
+    losses = []
+    for train_arr, test_arr in create_splits(df, 3):
+        train_arr = train_arr[cols]
+        test_arr=test_arr[cols]
+        def get_articles(labels):
+            if len(labels)==len(train_arr):
+                return list(train_arr[article])
+            elif len(labels) == len(test_arr):
+                return list(test_arr[article])
+            raise
+        def my_obj(preds, dtrain):
+            labels = dtrain.get_label()
+            arts = get_articles(labels)
+            return eval_target_score(arts, preds, labels)
+        print len(train_arr), len(test_arr)
+        train_target = train_arr[TARGET]
+        del train_arr[TARGET]
+        test_target = test_arr[TARGET]
+        del test_arr[TARGET]
+        # train_arr, test_arr = train_arr[cols], test_arr[cols]
+        estimator = xgb.XGBClassifier(n_estimators=10000,
+                                      subsample=0.8,
+                                      colsample_bytree=0.8,
+                                      max_depth=5,
+                                      # learning_rate=learning_rate,
+                                      objective='mlogloss',
+                                      nthread=-1
+                                      )
+        print test_arr.columns.values
+        eval_set = [(train_arr, train_target), (test_arr, test_target)]
+        estimator.fit(
+            train_arr, train_target,
+            eval_set=eval_set,
+            eval_metric=my_obj,
+            verbose=True,
+            early_stopping_rounds=50
+        )
+        classes = list(estimator.classes_)
+        print classes
+        xgb.plot_importance(estimator)
+        plt.show()
+        proba = estimator.predict_proba(test_arr)
+        loss = log_loss(test_target, proba)
+        losses.append(loss)
+        print loss
+cols=['a_bi_freq_suff' ,'a_three_freq_suff' ,'a_four_freq_suff', 'a_five_freq_suff',
+      'a_bi_freq_pref' ,'a_three_freq_pref' ,'a_four_freq_pref' ,'a_five_freq_pref',
+      'the_bi_freq_suff', 'the_three_freq_suff', 'the_four_freq_suff',
+      'the_five_freq_suff', 'the_bi_freq_pref' ,'the_three_freq_pref',
+      'the_four_freq_pref' ,'the_five_freq_pref' ,'a_the_bi_freq_suff_p1',
+      'the_a_bi_freq_suff_p1' ,'a_the_three_freq_suff_p1',
+      'the_a_three_freq_suff_p1' ,'a_the_four_freq_suff_p1',
+      'the_a_four_freq_suff_p1' ,'a_the_five_freq_suff_p1',
+      'the_a_five_freq_suff_p1' ,'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1',
+      'a_the_three_freq_pref_p1', 'the_a_three_freq_pref_p1',
+      'a_the_four_freq_pref_p1', 'the_a_four_freq_pref_p1',
+      'a_the_five_freq_pref_p1', 'the_a_five_freq_pref_p1',
+      'a_the_bi_freq_suff_p10', 'the_a_bi_freq_suff_p10',
+      'a_the_three_freq_suff_p10' ,'the_a_three_freq_suff_p10',
+      'a_the_four_freq_suff_p10' ,'the_a_four_freq_suff_p10',
+      'a_the_five_freq_suff_p10', 'the_a_five_freq_suff_p10',
+      'a_the_bi_freq_pref_p10', 'the_a_bi_freq_pref_p10',
+      'a_the_three_freq_pref_p10', 'the_a_three_freq_pref_p10',
+      'a_the_four_freq_pref_p10' ,'the_a_four_freq_pref_p10',
+      'a_the_five_freq_pref_p10' ,'the_a_five_freq_pref_p10',
+      'a_the_bi_freq_suff_p100', 'the_a_bi_freq_suff_p100',
+      'a_the_three_freq_suff_p100', 'the_a_three_freq_suff_p100',
+      'a_the_four_freq_suff_p100' ,'the_a_four_freq_suff_p100',
+      'a_the_five_freq_suff_p100' ,'the_a_five_freq_suff_p100',
+      'a_the_bi_freq_pref_p100', 'the_a_bi_freq_pref_p100',
+      'a_the_three_freq_pref_p100', 'the_a_three_freq_pref_p100',
+      'a_the_four_freq_pref_p100' ,'the_a_four_freq_pref_p100',
+      'a_the_five_freq_pref_p100' ,'the_a_five_freq_pref_p100' ,'st_with_v',
+      'article']
+# train_df = exploring_df(load_train())
+# train_df = load_train()
+#bad, good = process_max_ngram_freq_naive(train_df, 8, 5, 10)   63%
+# bad, good = process_max_ngram_freq_naive(train_df, 8, 5, 10)
+Backend Qt4Agg is interactive backend. Turning interactive mode on.
+/usr/local/lib/python2.7/dist-packages/IPython/html.py:14: ShimWarning: The `IPython.html` package has been deprecated since IPython 4.0. You should import from `notebook` instead. `IPython.html.widgets` has moved to `ipywidgets`.
+  "`IPython.html.widgets` has moved to `ipywidgets`.", ShimWarning)
+[]
+df = load_train()
+True
+perform_xgboost_cv(df.copy())
+35673 17890
+['a_bi_freq_suff' 'a_three_freq_suff' 'a_four_freq_suff' 'a_five_freq_suff'
+ 'a_bi_freq_pref' 'a_three_freq_pref' 'a_four_freq_pref' 'a_five_freq_pref'
+ 'the_bi_freq_suff' 'the_three_freq_suff' 'the_four_freq_suff'
+ 'the_five_freq_suff' 'the_bi_freq_pref' 'the_three_freq_pref'
+ 'the_four_freq_pref' 'the_five_freq_pref' 'a_the_bi_freq_suff_p1'
+ 'the_a_bi_freq_suff_p1' 'a_the_three_freq_suff_p1'
+ 'the_a_three_freq_suff_p1' 'a_the_four_freq_suff_p1'
+ 'the_a_four_freq_suff_p1' 'a_the_five_freq_suff_p1'
+ 'the_a_five_freq_suff_p1' 'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1'
+ 'a_the_three_freq_pref_p1' 'the_a_three_freq_pref_p1'
+ 'a_the_four_freq_pref_p1' 'the_a_four_freq_pref_p1'
+ 'a_the_five_freq_pref_p1' 'the_a_five_freq_pref_p1'
+ 'a_the_bi_freq_suff_p10' 'the_a_bi_freq_suff_p10'
+ 'a_the_three_freq_suff_p10' 'the_a_three_freq_suff_p10'
+ 'a_the_four_freq_suff_p10' 'the_a_four_freq_suff_p10'
+ 'a_the_five_freq_suff_p10' 'the_a_five_freq_suff_p10'
+ 'a_the_bi_freq_pref_p10' 'the_a_bi_freq_pref_p10'
+ 'a_the_three_freq_pref_p10' 'the_a_three_freq_pref_p10'
+ 'a_the_four_freq_pref_p10' 'the_a_four_freq_pref_p10'
+ 'a_the_five_freq_pref_p10' 'the_a_five_freq_pref_p10'
+ 'a_the_bi_freq_suff_p100' 'the_a_bi_freq_suff_p100'
+ 'a_the_three_freq_suff_p100' 'the_a_three_freq_suff_p100'
+ 'a_the_four_freq_suff_p100' 'the_a_four_freq_suff_p100'
+ 'a_the_five_freq_suff_p100' 'the_a_five_freq_suff_p100'
+ 'a_the_bi_freq_pref_p100' 'the_a_bi_freq_pref_p100'
+ 'a_the_three_freq_pref_p100' 'the_a_three_freq_pref_p100'
+ 'a_the_four_freq_pref_p100' 'the_a_four_freq_pref_p100'
+ 'a_the_five_freq_pref_p100' 'the_a_five_freq_pref_p100' 'st_with_v'
+ 'article']
+target score = 66.23 %
+accuracy (just for info) = 88.39 %
+target score = 64.92 %
+accuracy (just for info) = 87.69 %
+[0]	validation_0-merror:0.116306	validation_1-merror:0.123253	validation_0-target_score:-0.662334	validation_1-target_score:-0.64922
+Multiple eval metrics have been passed: 'validation_1-target_score' will be used for early stopping.
+Will train until validation_1-target_score hasn't improved in 50 rounds.
+target score = 68.64 %
+accuracy (just for info) = 88.94 %
+target score = 66.67 %
+accuracy (just for info) = 88.40 %
+[1]	validation_0-merror:0.11056	validation_1-merror:0.116098	validation_0-target_score:-0.686425	validation_1-target_score:-0.666704
+target score = 68.89 %
+accuracy (just for info) = 89.12 %
+target score = 66.96 %
+accuracy (just for info) = 88.68 %
+[2]	validation_0-merror:0.108878	validation_1-merror:0.113192	validation_0-target_score:-0.688946	validation_1-target_score:-0.669581
+target score = 68.61 %
+accuracy (just for info) = 89.19 %
+target score = 66.87 %
+accuracy (just for info) = 88.67 %
+[3]	validation_0-merror:0.108233	validation_1-merror:0.113359	validation_0-target_score:-0.686145	validation_1-target_score:-0.668695
+target score = 69.30 %
+accuracy (just for info) = 89.33 %
+target score = 67.22 %
+accuracy (just for info) = 88.70 %
+[4]	validation_0-merror:0.106803	validation_1-merror:0.113192	validation_0-target_score:-0.69298	validation_1-target_score:-0.672236
+target score = 69.33 %
+accuracy (just for info) = 89.41 %
+target score = 67.47 %
+accuracy (just for info) = 88.75 %
+[5]	validation_0-merror:0.105906	validation_1-merror:0.112577	validation_0-target_score:-0.693316	validation_1-target_score:-0.674671
+target score = 70.21 %
+accuracy (just for info) = 89.49 %
+target score = 68.16 %
+accuracy (just for info) = 88.87 %
+[6]	validation_0-merror:0.10515	validation_1-merror:0.111347	validation_0-target_score:-0.702056	validation_1-target_score:-0.681642
+target score = 70.22 %
+accuracy (just for info) = 89.60 %
+target score = 68.44 %
+accuracy (just for info) = 89.08 %
+[7]	validation_0-merror:0.104112	validation_1-merror:0.109167	validation_0-target_score:-0.702224	validation_1-target_score:-0.684409
+target score = 70.24 %
+accuracy (just for info) = 89.68 %
+target score = 68.87 %
+accuracy (just for info) = 89.22 %
+[8]	validation_0-merror:0.103215	validation_1-merror:0.10777	validation_0-target_score:-0.702448	validation_1-target_score:-0.688724
+target score = 70.35 %
+accuracy (just for info) = 89.73 %
+target score = 68.95 %
+accuracy (just for info) = 89.21 %
+[9]	validation_0-merror:0.102739	validation_1-merror:0.107882	validation_0-target_score:-0.703457	validation_1-target_score:-0.689499
+target score = 70.60 %
+accuracy (just for info) = 89.74 %
+target score = 68.96 %
+accuracy (just for info) = 89.18 %
+[10]	validation_0-merror:0.102571	validation_1-merror:0.108161	validation_0-target_score:-0.705978	validation_1-target_score:-0.689609
+target score = 70.79 %
+accuracy (just for info) = 89.83 %
+target score = 69.05 %
+accuracy (just for info) = 89.33 %
+[11]	validation_0-merror:0.101702	validation_1-merror:0.106708	validation_0-target_score:-0.707883	validation_1-target_score:-0.690495
+target score = 71.09 %
+accuracy (just for info) = 89.89 %
+target score = 69.09 %
+accuracy (just for info) = 89.36 %
+[12]	validation_0-merror:0.101141	validation_1-merror:0.106428	validation_0-target_score:-0.710908	validation_1-target_score:-0.690937
+target score = 71.41 %
+accuracy (just for info) = 89.88 %
+target score = 69.40 %
+accuracy (just for info) = 89.35 %
+[13]	validation_0-merror:0.101169	validation_1-merror:0.106484	validation_0-target_score:-0.714102	validation_1-target_score:-0.694036
+target score = 71.29 %
+accuracy (just for info) = 89.95 %
+target score = 69.40 %
+accuracy (just for info) = 89.41 %
+[14]	validation_0-merror:0.100468	validation_1-merror:0.105869	validation_0-target_score:-0.712925	validation_1-target_score:-0.694036
+target score = 71.65 %
+accuracy (just for info) = 89.95 %
+target score = 69.22 %
+accuracy (just for info) = 89.41 %
+[15]	validation_0-merror:0.100468	validation_1-merror:0.105925	validation_0-target_score:-0.716455	validation_1-target_score:-0.692154
+target score = 71.89 %
+accuracy (just for info) = 89.97 %
+target score = 69.53 %
+accuracy (just for info) = 89.45 %
+[16]	validation_0-merror:0.100272	validation_1-merror:0.105534	validation_0-target_score:-0.71892	validation_1-target_score:-0.695253
+target score = 72.06 %
+accuracy (just for info) = 90.01 %
+target score = 69.53 %
+accuracy (just for info) = 89.41 %
+[17]	validation_0-merror:0.099907	validation_1-merror:0.105869	validation_0-target_score:-0.720601	validation_1-target_score:-0.695253
+target score = 71.96 %
+accuracy (just for info) = 90.01 %
+target score = 69.66 %
+accuracy (just for info) = 89.45 %
+[18]	validation_0-merror:0.099964	validation_1-merror:0.105478	validation_0-target_score:-0.719648	validation_1-target_score:-0.696581
+target score = 72.31 %
+accuracy (just for info) = 90.00 %
+target score = 69.71 %
+accuracy (just for info) = 89.46 %
+[19]	validation_0-merror:0.100048	validation_1-merror:0.105702	validation_0-target_score:-0.723066	validation_1-target_score:-0.697134
+target score = 72.41 %
+accuracy (just for info) = 90.08 %
+target score = 69.70 %
+accuracy (just for info) = 89.53 %
+[20]	validation_0-merror:0.099151	validation_1-merror:0.104695	validation_0-target_score:-0.72413	validation_1-target_score:-0.697023
+target score = 72.58 %
+accuracy (just for info) = 90.07 %
+target score = 69.87 %
+accuracy (just for info) = 89.53 %
+[21]	validation_0-merror:0.099291	validation_1-merror:0.104695	validation_0-target_score:-0.725755	validation_1-target_score:-0.698683
+target score = 72.83 %
+accuracy (just for info) = 90.10 %
+target score = 70.21 %
+accuracy (just for info) = 89.54 %
+[22]	validation_0-merror:0.098982	validation_1-merror:0.104695	validation_0-target_score:-0.728276	validation_1-target_score:-0.702114
+target score = 72.92 %
+accuracy (just for info) = 90.12 %
+target score = 70.17 %
+accuracy (just for info) = 89.55 %
+[23]	validation_0-merror:0.098842	validation_1-merror:0.104472	validation_0-target_score:-0.729229	validation_1-target_score:-0.701671
+target score = 72.92 %
+accuracy (just for info) = 90.15 %
+target score = 70.27 %
+accuracy (just for info) = 89.55 %
+[24]	validation_0-merror:0.098562	validation_1-merror:0.104472	validation_0-target_score:-0.729229	validation_1-target_score:-0.702667
+target score = 73.03 %
+accuracy (just for info) = 90.17 %
+target score = 70.48 %
+accuracy (just for info) = 89.57 %
+[25]	validation_0-merror:0.098338	validation_1-merror:0.104472	validation_0-target_score:-0.730349	validation_1-target_score:-0.704769
+target score = 73.29 %
+accuracy (just for info) = 90.20 %
+target score = 70.61 %
+accuracy (just for info) = 89.55 %
+[26]	validation_0-merror:0.098001	validation_1-merror:0.104639	validation_0-target_score:-0.732926	validation_1-target_score:-0.706097
+target score = 73.31 %
+accuracy (just for info) = 90.22 %
+target score = 70.65 %
+accuracy (just for info) = 89.54 %
+[27]	validation_0-merror:0.097833	validation_1-merror:0.104751	validation_0-target_score:-0.733094	validation_1-target_score:-0.70654
+target score = 73.46 %
+accuracy (just for info) = 90.24 %
+target score = 70.72 %
+accuracy (just for info) = 89.58 %
+[28]	validation_0-merror:0.097693	validation_1-merror:0.104248	validation_0-target_score:-0.734551	validation_1-target_score:-0.707204
+target score = 73.50 %
+accuracy (just for info) = 90.24 %
+target score = 70.78 %
+accuracy (just for info) = 89.56 %
+[29]	validation_0-merror:0.097665	validation_1-merror:0.10436	validation_0-target_score:-0.734999	validation_1-target_score:-0.707757
+target score = 73.61 %
+accuracy (just for info) = 90.24 %
+target score = 70.86 %
+accuracy (just for info) = 89.58 %
+[30]	validation_0-merror:0.097609	validation_1-merror:0.104304	validation_0-target_score:-0.73612	validation_1-target_score:-0.708642
+target score = 73.58 %
+accuracy (just for info) = 90.25 %
+target score = 70.89 %
+accuracy (just for info) = 89.58 %
+[31]	validation_0-merror:0.097525	validation_1-merror:0.104248	validation_0-target_score:-0.735784	validation_1-target_score:-0.708864
+target score = 73.66 %
+accuracy (just for info) = 90.26 %
+target score = 71.02 %
+accuracy (just for info) = 89.61 %
+[32]	validation_0-merror:0.097469	validation_1-merror:0.103969	validation_0-target_score:-0.736568	validation_1-target_score:-0.710191
+target score = 73.76 %
+accuracy (just for info) = 90.28 %
+target score = 71.02 %
+accuracy (just for info) = 89.61 %
+[33]	validation_0-merror:0.097216	validation_1-merror:0.103857	validation_0-target_score:-0.737576	validation_1-target_score:-0.710191
+target score = 73.77 %
+accuracy (just for info) = 90.33 %
+target score = 71.14 %
+accuracy (just for info) = 89.64 %
+[34]	validation_0-merror:0.09674	validation_1-merror:0.103633	validation_0-target_score:-0.737688	validation_1-target_score:-0.711409
+target score = 73.92 %
+accuracy (just for info) = 90.35 %
+target score = 71.19 %
+accuracy (just for info) = 89.64 %
+[35]	validation_0-merror:0.0966	validation_1-merror:0.103577	validation_0-target_score:-0.739201	validation_1-target_score:-0.711851
+target score = 74.01 %
+accuracy (just for info) = 90.35 %
+target score = 71.23 %
+accuracy (just for info) = 89.60 %
+[36]	validation_0-merror:0.096572	validation_1-merror:0.104025	validation_0-target_score:-0.740097	validation_1-target_score:-0.712294
+target score = 74.10 %
+accuracy (just for info) = 90.36 %
+target score = 71.34 %
+accuracy (just for info) = 89.62 %
+[37]	validation_0-merror:0.096403	validation_1-merror:0.103801	validation_0-target_score:-0.74105	validation_1-target_score:-0.7134
+target score = 74.16 %
+accuracy (just for info) = 90.35 %
+target score = 71.38 %
+accuracy (just for info) = 89.58 %
+[38]	validation_0-merror:0.096516	validation_1-merror:0.104192	validation_0-target_score:-0.741554	validation_1-target_score:-0.713843
+target score = 74.19 %
+accuracy (just for info) = 90.37 %
+target score = 71.38 %
+accuracy (just for info) = 89.61 %
+[39]	validation_0-merror:0.096291	validation_1-merror:0.103913	validation_0-target_score:-0.74189	validation_1-target_score:-0.713843
+target score = 74.22 %
+accuracy (just for info) = 90.38 %
+target score = 71.31 %
+accuracy (just for info) = 89.59 %
+[40]	validation_0-merror:0.096235	validation_1-merror:0.10408	validation_0-target_score:-0.74217	validation_1-target_score:-0.713068
+target score = 74.31 %
+accuracy (just for info) = 90.37 %
+target score = 71.59 %
+accuracy (just for info) = 89.59 %
+[41]	validation_0-merror:0.096347	validation_1-merror:0.10408	validation_0-target_score:-0.743123	validation_1-target_score:-0.715946
+target score = 74.38 %
+accuracy (just for info) = 90.39 %
+target score = 71.44 %
+accuracy (just for info) = 89.63 %
+[42]	validation_0-merror:0.096123	validation_1-merror:0.103745	validation_0-target_score:-0.743795	validation_1-target_score:-0.714396
+target score = 74.53 %
+accuracy (just for info) = 90.39 %
+target score = 71.52 %
+accuracy (just for info) = 89.62 %
+[43]	validation_0-merror:0.096123	validation_1-merror:0.103801	validation_0-target_score:-0.745252	validation_1-target_score:-0.715171
+target score = 74.59 %
+accuracy (just for info) = 90.40 %
+target score = 71.51 %
+accuracy (just for info) = 89.63 %
+[44]	validation_0-merror:0.095955	validation_1-merror:0.103745	validation_0-target_score:-0.745924	validation_1-target_score:-0.71506
+target score = 74.56 %
+accuracy (just for info) = 90.41 %
+target score = 71.61 %
+accuracy (just for info) = 89.63 %
+[45]	validation_0-merror:0.095899	validation_1-merror:0.103745	validation_0-target_score:-0.745588	validation_1-target_score:-0.716056
+target score = 74.63 %
+accuracy (just for info) = 90.44 %
+target score = 71.67 %
+accuracy (just for info) = 89.61 %
+[46]	validation_0-merror:0.095562	validation_1-merror:0.103913	validation_0-target_score:-0.746316	validation_1-target_score:-0.71672
+target score = 74.69 %
+accuracy (just for info) = 90.43 %
+target score = 71.53 %
+accuracy (just for info) = 89.63 %
+[47]	validation_0-merror:0.095675	validation_1-merror:0.103745	validation_0-target_score:-0.746933	validation_1-target_score:-0.715282
+target score = 74.79 %
+accuracy (just for info) = 90.44 %
+target score = 71.57 %
+accuracy (just for info) = 89.65 %
+[48]	validation_0-merror:0.095562	validation_1-merror:0.103577	validation_0-target_score:-0.747885	validation_1-target_score:-0.715724
+target score = 74.85 %
+accuracy (just for info) = 90.45 %
+target score = 71.87 %
+accuracy (just for info) = 89.66 %
+[49]	validation_0-merror:0.095478	validation_1-merror:0.10341	validation_0-target_score:-0.748501	validation_1-target_score:-0.718712
+target score = 74.88 %
+accuracy (just for info) = 90.45 %
+target score = 71.80 %
+accuracy (just for info) = 89.65 %
+[50]	validation_0-merror:0.095506	validation_1-merror:0.103466	validation_0-target_score:-0.748781	validation_1-target_score:-0.718048
+target score = 75.02 %
+accuracy (just for info) = 90.45 %
+target score = 71.72 %
+accuracy (just for info) = 89.65 %
+[51]	validation_0-merror:0.095534	validation_1-merror:0.103522	validation_0-target_score:-0.750182	validation_1-target_score:-0.717163
+target score = 75.01 %
+accuracy (just for info) = 90.45 %
+target score = 71.73 %
+accuracy (just for info) = 89.66 %
+[52]	validation_0-merror:0.095506	validation_1-merror:0.10341	validation_0-target_score:-0.750126	validation_1-target_score:-0.717273
+target score = 75.00 %
+accuracy (just for info) = 90.45 %
+target score = 71.74 %
+accuracy (just for info) = 89.65 %
+[53]	validation_0-merror:0.095506	validation_1-merror:0.103522	validation_0-target_score:-0.749958	validation_1-target_score:-0.717384
+target score = 75.09 %
+accuracy (just for info) = 90.45 %
+target score = 71.77 %
+accuracy (just for info) = 89.67 %
+[54]	validation_0-merror:0.095534	validation_1-merror:0.103298	validation_0-target_score:-0.75091	validation_1-target_score:-0.717716
+target score = 75.13 %
+accuracy (just for info) = 90.48 %
+target score = 71.78 %
+accuracy (just for info) = 89.68 %
+[55]	validation_0-merror:0.095254	validation_1-merror:0.103242	validation_0-target_score:-0.751303	validation_1-target_score:-0.717827
+target score = 75.22 %
+accuracy (just for info) = 90.48 %
+target score = 71.82 %
+accuracy (just for info) = 89.67 %
+[56]	validation_0-merror:0.095226	validation_1-merror:0.103354	validation_0-target_score:-0.752199	validation_1-target_score:-0.718159
+target score = 75.28 %
+accuracy (just for info) = 90.50 %
+target score = 71.87 %
+accuracy (just for info) = 89.68 %
+[57]	validation_0-merror:0.09503	validation_1-merror:0.103354	validation_0-target_score:-0.752815	validation_1-target_score:-0.718712
+target score = 75.29 %
+accuracy (just for info) = 90.53 %
+target score = 71.99 %
+accuracy (just for info) = 89.69 %
+[58]	validation_0-merror:0.094778	validation_1-merror:0.103298	validation_0-target_score:-0.752927	validation_1-target_score:-0.719929
+target score = 75.30 %
+accuracy (just for info) = 90.54 %
+target score = 72.14 %
+accuracy (just for info) = 89.69 %
+[59]	validation_0-merror:0.094581	validation_1-merror:0.10313	validation_0-target_score:-0.752983	validation_1-target_score:-0.721368
+target score = 75.39 %
+accuracy (just for info) = 90.56 %
+target score = 72.16 %
+accuracy (just for info) = 89.70 %
+[60]	validation_0-merror:0.094469	validation_1-merror:0.103074	validation_0-target_score:-0.753936	validation_1-target_score:-0.721589
+target score = 75.42 %
+accuracy (just for info) = 90.56 %
+target score = 72.13 %
+accuracy (just for info) = 89.71 %
+[61]	validation_0-merror:0.094469	validation_1-merror:0.103298	validation_0-target_score:-0.75416	validation_1-target_score:-0.721257
+target score = 75.48 %
+accuracy (just for info) = 90.56 %
+target score = 72.02 %
+accuracy (just for info) = 89.68 %
+[62]	validation_0-merror:0.094497	validation_1-merror:0.103298	validation_0-target_score:-0.754832	validation_1-target_score:-0.72015
+target score = 75.54 %
+accuracy (just for info) = 90.56 %
+target score = 72.05 %
+accuracy (just for info) = 89.69 %
+[63]	validation_0-merror:0.094469	validation_1-merror:0.103186	validation_0-target_score:-0.755392	validation_1-target_score:-0.720482
+target score = 75.67 %
+accuracy (just for info) = 90.58 %
+target score = 71.98 %
+accuracy (just for info) = 89.69 %
+[64]	validation_0-merror:0.094217	validation_1-merror:0.10313	validation_0-target_score:-0.756737	validation_1-target_score:-0.719819
+target score = 75.64 %
+accuracy (just for info) = 90.61 %
+target score = 71.94 %
+accuracy (just for info) = 89.71 %
+[65]	validation_0-merror:0.094049	validation_1-merror:0.103018	validation_0-target_score:-0.756401	validation_1-target_score:-0.719376
+target score = 75.65 %
+accuracy (just for info) = 90.60 %
+target score = 72.09 %
+accuracy (just for info) = 89.70 %
+[66]	validation_0-merror:0.094049	validation_1-merror:0.103018	validation_0-target_score:-0.756513	validation_1-target_score:-0.720925
+target score = 75.75 %
+accuracy (just for info) = 90.62 %
+target score = 72.06 %
+accuracy (just for info) = 89.73 %
+[67]	validation_0-merror:0.093852	validation_1-merror:0.102739	validation_0-target_score:-0.757521	validation_1-target_score:-0.720593
+target score = 75.66 %
+accuracy (just for info) = 90.63 %
+target score = 72.17 %
+accuracy (just for info) = 89.72 %
+[68]	validation_0-merror:0.093684	validation_1-merror:0.102795	validation_0-target_score:-0.756625	validation_1-target_score:-0.7217
+target score = 75.79 %
+accuracy (just for info) = 90.63 %
+target score = 72.20 %
+accuracy (just for info) = 89.74 %
+[69]	validation_0-merror:0.093684	validation_1-merror:0.102627	validation_0-target_score:-0.757914	validation_1-target_score:-0.722032
+target score = 75.81 %
+accuracy (just for info) = 90.65 %
+target score = 72.23 %
+accuracy (just for info) = 89.73 %
+[70]	validation_0-merror:0.093544	validation_1-merror:0.102683	validation_0-target_score:-0.758082	validation_1-target_score:-0.722253
+target score = 75.79 %
+accuracy (just for info) = 90.64 %
+target score = 72.30 %
+accuracy (just for info) = 89.74 %
+[71]	validation_0-merror:0.093572	validation_1-merror:0.102571	validation_0-target_score:-0.757914	validation_1-target_score:-0.723028
+target score = 75.89 %
+accuracy (just for info) = 90.65 %
+target score = 72.35 %
+accuracy (just for info) = 89.75 %
+[72]	validation_0-merror:0.093544	validation_1-merror:0.102571	validation_0-target_score:-0.758922	validation_1-target_score:-0.72347
+target score = 75.83 %
+accuracy (just for info) = 90.70 %
+target score = 72.38 %
+accuracy (just for info) = 89.75 %
+[73]	validation_0-merror:0.092983	validation_1-merror:0.102459	validation_0-target_score:-0.758306	validation_1-target_score:-0.723802
+target score = 76.04 %
+accuracy (just for info) = 90.72 %
+target score = 72.38 %
+accuracy (just for info) = 89.77 %
+[74]	validation_0-merror:0.092787	validation_1-merror:0.102348	validation_0-target_score:-0.760435	validation_1-target_score:-0.723802
+target score = 76.12 %
+accuracy (just for info) = 90.75 %
+target score = 72.34 %
+accuracy (just for info) = 89.75 %
+[75]	validation_0-merror:0.092507	validation_1-merror:0.102459	validation_0-target_score:-0.761163	validation_1-target_score:-0.72336
+target score = 76.16 %
+accuracy (just for info) = 90.77 %
+target score = 72.16 %
+accuracy (just for info) = 89.75 %
+[76]	validation_0-merror:0.092339	validation_1-merror:0.102515	validation_0-target_score:-0.761611	validation_1-target_score:-0.721589
+target score = 76.20 %
+accuracy (just for info) = 90.77 %
+target score = 72.32 %
+accuracy (just for info) = 89.76 %
+[77]	validation_0-merror:0.092395	validation_1-merror:0.102459	validation_0-target_score:-0.762003	validation_1-target_score:-0.723249
+target score = 76.30 %
+accuracy (just for info) = 90.77 %
+target score = 72.52 %
+accuracy (just for info) = 89.80 %
+[78]	validation_0-merror:0.092339	validation_1-merror:0.102012	validation_0-target_score:-0.763012	validation_1-target_score:-0.725241
+target score = 76.38 %
+accuracy (just for info) = 90.79 %
+target score = 72.45 %
+accuracy (just for info) = 89.80 %
+[79]	validation_0-merror:0.092143	validation_1-merror:0.101956	validation_0-target_score:-0.763796	validation_1-target_score:-0.724466
+target score = 76.46 %
+accuracy (just for info) = 90.79 %
+target score = 72.50 %
+accuracy (just for info) = 89.84 %
+[80]	validation_0-merror:0.092143	validation_1-merror:0.101565	validation_0-target_score:-0.764637	validation_1-target_score:-0.725019
+target score = 76.54 %
+accuracy (just for info) = 90.82 %
+target score = 72.51 %
+accuracy (just for info) = 89.84 %
+[81]	validation_0-merror:0.09189	validation_1-merror:0.101621	validation_0-target_score:-0.765421	validation_1-target_score:-0.72513
+target score = 76.59 %
+accuracy (just for info) = 90.82 %
+target score = 72.51 %
+accuracy (just for info) = 89.84 %
+[82]	validation_0-merror:0.091806	validation_1-merror:0.101565	validation_0-target_score:-0.765925	validation_1-target_score:-0.72513
+target score = 76.65 %
+accuracy (just for info) = 90.84 %
+target score = 72.55 %
+accuracy (just for info) = 89.84 %
+[83]	validation_0-merror:0.091666	validation_1-merror:0.101565	validation_0-target_score:-0.766542	validation_1-target_score:-0.725462
+target score = 76.83 %
+accuracy (just for info) = 90.90 %
+target score = 72.73 %
+accuracy (just for info) = 89.85 %
+[84]	validation_0-merror:0.091161	validation_1-merror:0.101509	validation_0-target_score:-0.768334	validation_1-target_score:-0.727343
+target score = 76.87 %
+accuracy (just for info) = 90.91 %
+target score = 72.73 %
+accuracy (just for info) = 89.84 %
+[85]	validation_0-merror:0.090909	validation_1-merror:0.101565	validation_0-target_score:-0.768671	validation_1-target_score:-0.727343
+target score = 76.89 %
+accuracy (just for info) = 90.91 %
+target score = 72.73 %
+accuracy (just for info) = 89.85 %
+[86]	validation_0-merror:0.090993	validation_1-merror:0.101453	validation_0-target_score:-0.768895	validation_1-target_score:-0.727343
+target score = 77.04 %
+accuracy (just for info) = 90.93 %
+target score = 72.87 %
+accuracy (just for info) = 89.84 %
+[87]	validation_0-merror:0.090769	validation_1-merror:0.101565	validation_0-target_score:-0.770351	validation_1-target_score:-0.728671
+target score = 77.10 %
+accuracy (just for info) = 90.93 %
+target score = 72.72 %
+accuracy (just for info) = 89.85 %
+[88]	validation_0-merror:0.090881	validation_1-merror:0.101509	validation_0-target_score:-0.770968	validation_1-target_score:-0.727232
+target score = 77.18 %
+accuracy (just for info) = 90.93 %
+target score = 72.77 %
+accuracy (just for info) = 89.85 %
+[89]	validation_0-merror:0.090769	validation_1-merror:0.101453	validation_0-target_score:-0.771752	validation_1-target_score:-0.727675
+target score = 77.28 %
+accuracy (just for info) = 90.94 %
+target score = 72.79 %
+accuracy (just for info) = 89.85 %
+[90]	validation_0-merror:0.090713	validation_1-merror:0.101509	validation_0-target_score:-0.77276	validation_1-target_score:-0.727896
+target score = 77.30 %
+accuracy (just for info) = 90.94 %
+target score = 72.79 %
+accuracy (just for info) = 89.88 %
+[91]	validation_0-merror:0.090713	validation_1-merror:0.10123	validation_0-target_score:-0.772984	validation_1-target_score:-0.727896
+target score = 77.43 %
+accuracy (just for info) = 90.96 %
+target score = 72.92 %
+accuracy (just for info) = 89.85 %
+[92]	validation_0-merror:0.090433	validation_1-merror:0.101453	validation_0-target_score:-0.774329	validation_1-target_score:-0.729224
+target score = 77.53 %
+accuracy (just for info) = 90.96 %
+target score = 72.97 %
+accuracy (just for info) = 89.88 %
+[93]	validation_0-merror:0.090489	validation_1-merror:0.101174	validation_0-target_score:-0.775282	validation_1-target_score:-0.729667
+target score = 77.47 %
+accuracy (just for info) = 90.99 %
+target score = 73.00 %
+accuracy (just for info) = 89.87 %
+[94]	validation_0-merror:0.090292	validation_1-merror:0.101342	validation_0-target_score:-0.774665	validation_1-target_score:-0.729999
+target score = 77.61 %
+accuracy (just for info) = 91.01 %
+target score = 73.01 %
+accuracy (just for info) = 89.87 %
+[95]	validation_0-merror:0.090012	validation_1-merror:0.101286	validation_0-target_score:-0.776066	validation_1-target_score:-0.73011
+target score = 77.74 %
+accuracy (just for info) = 91.02 %
+target score = 73.00 %
+accuracy (just for info) = 89.88 %
+[96]	validation_0-merror:0.089872	validation_1-merror:0.101174	validation_0-target_score:-0.777354	validation_1-target_score:-0.729999
+target score = 77.72 %
+accuracy (just for info) = 91.04 %
+target score = 73.12 %
+accuracy (just for info) = 89.87 %
+[97]	validation_0-merror:0.089676	validation_1-merror:0.101342	validation_0-target_score:-0.777242	validation_1-target_score:-0.731216
+target score = 77.80 %
+accuracy (just for info) = 91.06 %
+target score = 73.08 %
+accuracy (just for info) = 89.89 %
+[98]	validation_0-merror:0.089451	validation_1-merror:0.10123	validation_0-target_score:-0.777971	validation_1-target_score:-0.730773
+target score = 77.94 %
+accuracy (just for info) = 91.11 %
+target score = 73.08 %
+accuracy (just for info) = 89.88 %
+[99]	validation_0-merror:0.089059	validation_1-merror:0.101174	validation_0-target_score:-0.779427	validation_1-target_score:-0.730773
+target score = 77.97 %
+accuracy (just for info) = 91.12 %
+target score = 73.07 %
+accuracy (just for info) = 89.88 %
+[100]	validation_0-merror:0.088863	validation_1-merror:0.10123	validation_0-target_score:-0.779652	validation_1-target_score:-0.730663
+target score = 78.02 %
+accuracy (just for info) = 91.12 %
+target score = 73.01 %
+accuracy (just for info) = 89.91 %
+[101]	validation_0-merror:0.088807	validation_1-merror:0.10095	validation_0-target_score:-0.780156	validation_1-target_score:-0.73011
+target score = 78.13 %
+accuracy (just for info) = 91.13 %
+target score = 73.03 %
+accuracy (just for info) = 89.90 %
+[102]	validation_0-merror:0.088695	validation_1-merror:0.101118	validation_0-target_score:-0.781276	validation_1-target_score:-0.730331
+target score = 78.21 %
+accuracy (just for info) = 91.16 %
+target score = 72.96 %
+accuracy (just for info) = 89.89 %
+[103]	validation_0-merror:0.08847	validation_1-merror:0.101286	validation_0-target_score:-0.782061	validation_1-target_score:-0.729556
+target score = 78.21 %
+accuracy (just for info) = 91.18 %
+target score = 72.96 %
+accuracy (just for info) = 89.89 %
+[104]	validation_0-merror:0.088246	validation_1-merror:0.10123	validation_0-target_score:-0.782117	validation_1-target_score:-0.729556
+target score = 78.39 %
+accuracy (just for info) = 91.23 %
+target score = 73.00 %
+accuracy (just for info) = 89.92 %
+[105]	validation_0-merror:0.087854	validation_1-merror:0.100894	validation_0-target_score:-0.783853	validation_1-target_score:-0.729999
+target score = 78.36 %
+accuracy (just for info) = 91.22 %
+target score = 72.99 %
+accuracy (just for info) = 89.92 %
+[106]	validation_0-merror:0.08791	validation_1-merror:0.100838	validation_0-target_score:-0.783573	validation_1-target_score:-0.729888
+target score = 78.40 %
+accuracy (just for info) = 91.23 %
+target score = 72.90 %
+accuracy (just for info) = 89.93 %
+[107]	validation_0-merror:0.087741	validation_1-merror:0.100838	validation_0-target_score:-0.784022	validation_1-target_score:-0.729003
+target score = 78.49 %
+accuracy (just for info) = 91.25 %
+target score = 72.84 %
+accuracy (just for info) = 89.93 %
+[108]	validation_0-merror:0.087601	validation_1-merror:0.100838	validation_0-target_score:-0.784918	validation_1-target_score:-0.72845
+target score = 78.46 %
+accuracy (just for info) = 91.25 %
+target score = 72.86 %
+accuracy (just for info) = 89.93 %
+[109]	validation_0-merror:0.087545	validation_1-merror:0.100783	validation_0-target_score:-0.784638	validation_1-target_score:-0.72856
+target score = 78.49 %
+accuracy (just for info) = 91.26 %
+target score = 72.87 %
+accuracy (just for info) = 89.94 %
+[110]	validation_0-merror:0.087489	validation_1-merror:0.100671	validation_0-target_score:-0.784862	validation_1-target_score:-0.728671
+target score = 78.55 %
+accuracy (just for info) = 91.27 %
+target score = 72.92 %
+accuracy (just for info) = 89.93 %
+[111]	validation_0-merror:0.087377	validation_1-merror:0.100727	validation_0-target_score:-0.785534	validation_1-target_score:-0.729224
+target score = 78.60 %
+accuracy (just for info) = 91.30 %
+target score = 72.88 %
+accuracy (just for info) = 89.94 %
+[112]	validation_0-merror:0.087097	validation_1-merror:0.100671	validation_0-target_score:-0.786038	validation_1-target_score:-0.728782
+target score = 78.60 %
+accuracy (just for info) = 91.30 %
+target score = 72.86 %
+accuracy (just for info) = 89.93 %
+[113]	validation_0-merror:0.087013	validation_1-merror:0.100783	validation_0-target_score:-0.786038	validation_1-target_score:-0.72856
+target score = 78.72 %
+accuracy (just for info) = 91.32 %
+target score = 72.81 %
+accuracy (just for info) = 89.93 %
+[114]	validation_0-merror:0.086816	validation_1-merror:0.100783	validation_0-target_score:-0.787159	validation_1-target_score:-0.728118
+target score = 78.80 %
+accuracy (just for info) = 91.34 %
+target score = 72.86 %
+accuracy (just for info) = 89.93 %
+[115]	validation_0-merror:0.086676	validation_1-merror:0.100783	validation_0-target_score:-0.787999	validation_1-target_score:-0.72856
+target score = 78.84 %
+accuracy (just for info) = 91.35 %
+target score = 72.88 %
+accuracy (just for info) = 89.94 %
+[116]	validation_0-merror:0.086564	validation_1-merror:0.100671	validation_0-target_score:-0.788392	validation_1-target_score:-0.728782
+target score = 78.83 %
+accuracy (just for info) = 91.35 %
+target score = 72.86 %
+accuracy (just for info) = 89.94 %
+[117]	validation_0-merror:0.08648	validation_1-merror:0.100727	validation_0-target_score:-0.788335	validation_1-target_score:-0.72856
+target score = 78.80 %
+accuracy (just for info) = 91.36 %
+target score = 72.89 %
+accuracy (just for info) = 89.94 %
+[118]	validation_0-merror:0.086424	validation_1-merror:0.100727	validation_0-target_score:-0.787999	validation_1-target_score:-0.728892
+target score = 78.93 %
+accuracy (just for info) = 91.39 %
+target score = 72.90 %
+accuracy (just for info) = 89.94 %
+[119]	validation_0-merror:0.086144	validation_1-merror:0.100559	validation_0-target_score:-0.789344	validation_1-target_score:-0.729003
+target score = 78.92 %
+accuracy (just for info) = 91.41 %
+target score = 72.93 %
+accuracy (just for info) = 89.96 %
+[120]	validation_0-merror:0.085947	validation_1-merror:0.100447	validation_0-target_score:-0.789176	validation_1-target_score:-0.729335
+target score = 79.09 %
+accuracy (just for info) = 91.40 %
+target score = 73.03 %
+accuracy (just for info) = 89.98 %
+[121]	validation_0-merror:0.086144	validation_1-merror:0.100168	validation_0-target_score:-0.790857	validation_1-target_score:-0.730331
+target score = 79.15 %
+accuracy (just for info) = 91.39 %
+target score = 72.97 %
+accuracy (just for info) = 89.99 %
+[122]	validation_0-merror:0.086144	validation_1-merror:0.100112	validation_0-target_score:-0.791473	validation_1-target_score:-0.729667
+target score = 79.16 %
+accuracy (just for info) = 91.41 %
+target score = 72.97 %
+accuracy (just for info) = 90.00 %
+[123]	validation_0-merror:0.085975	validation_1-merror:0.1	validation_0-target_score:-0.791641	validation_1-target_score:-0.729667
+target score = 79.23 %
+accuracy (just for info) = 91.43 %
+target score = 73.03 %
+accuracy (just for info) = 89.99 %
+[124]	validation_0-merror:0.085779	validation_1-merror:0.100056	validation_0-target_score:-0.792257	validation_1-target_score:-0.730331
+target score = 79.29 %
+accuracy (just for info) = 91.45 %
+target score = 72.99 %
+accuracy (just for info) = 89.98 %
+[125]	validation_0-merror:0.085583	validation_1-merror:0.100168	validation_0-target_score:-0.79293	validation_1-target_score:-0.729888
+target score = 79.35 %
+accuracy (just for info) = 91.46 %
+target score = 73.06 %
+accuracy (just for info) = 89.99 %
+[126]	validation_0-merror:0.085471	validation_1-merror:0.100112	validation_0-target_score:-0.79349	validation_1-target_score:-0.730552
+target score = 79.44 %
+accuracy (just for info) = 91.48 %
+target score = 73.14 %
+accuracy (just for info) = 90.00 %
+[127]	validation_0-merror:0.085247	validation_1-merror:0.100056	validation_0-target_score:-0.794386	validation_1-target_score:-0.731437
+target score = 79.52 %
+accuracy (just for info) = 91.50 %
+target score = 73.10 %
+accuracy (just for info) = 89.99 %
+[128]	validation_0-merror:0.085022	validation_1-merror:0.100112	validation_0-target_score:-0.795171	validation_1-target_score:-0.730995
+target score = 79.47 %
+accuracy (just for info) = 91.50 %
+target score = 73.12 %
+accuracy (just for info) = 89.99 %
+[129]	validation_0-merror:0.08505	validation_1-merror:0.100112	validation_0-target_score:-0.794722	validation_1-target_score:-0.731216
+target score = 79.46 %
+accuracy (just for info) = 91.51 %
+target score = 73.01 %
+accuracy (just for info) = 89.99 %
+[130]	validation_0-merror:0.084994	validation_1-merror:0.100112	validation_0-target_score:-0.79461	validation_1-target_score:-0.73011
+target score = 79.61 %
+accuracy (just for info) = 91.52 %
+target score = 73.08 %
+accuracy (just for info) = 90.01 %
+[131]	validation_0-merror:0.084854	validation_1-merror:0.1	validation_0-target_score:-0.796123	validation_1-target_score:-0.730773
+target score = 79.57 %
+accuracy (just for info) = 91.55 %
+target score = 72.89 %
+accuracy (just for info) = 90.02 %
+[132]	validation_0-merror:0.084602	validation_1-merror:0.099888	validation_0-target_score:-0.795675	validation_1-target_score:-0.728892
+target score = 79.60 %
+accuracy (just for info) = 91.57 %
+target score = 72.84 %
+accuracy (just for info) = 90.00 %
+[133]	validation_0-merror:0.084406	validation_1-merror:0.100056	validation_0-target_score:-0.796011	validation_1-target_score:-0.72845
+target score = 79.63 %
+accuracy (just for info) = 91.58 %
+target score = 72.84 %
+accuracy (just for info) = 90.00 %
+[134]	validation_0-merror:0.084209	validation_1-merror:0.100056	validation_0-target_score:-0.796347	validation_1-target_score:-0.72845
+target score = 79.69 %
+accuracy (just for info) = 91.58 %
+target score = 72.87 %
+accuracy (just for info) = 90.01 %
+[135]	validation_0-merror:0.084293	validation_1-merror:0.099944	validation_0-target_score:-0.796907	validation_1-target_score:-0.728671
+target score = 79.78 %
+accuracy (just for info) = 91.61 %
+target score = 73.04 %
+accuracy (just for info) = 89.98 %
+[136]	validation_0-merror:0.083985	validation_1-merror:0.100224	validation_0-target_score:-0.797804	validation_1-target_score:-0.730442
+target score = 79.89 %
+accuracy (just for info) = 91.62 %
+target score = 73.04 %
+accuracy (just for info) = 90.00 %
+[137]	validation_0-merror:0.083817	validation_1-merror:0.100056	validation_0-target_score:-0.798924	validation_1-target_score:-0.730442
+target score = 79.95 %
+accuracy (just for info) = 91.64 %
+target score = 73.02 %
+accuracy (just for info) = 90.00 %
+[138]	validation_0-merror:0.083705	validation_1-merror:0.100056	validation_0-target_score:-0.799485	validation_1-target_score:-0.73022
+target score = 79.99 %
+accuracy (just for info) = 91.68 %
+target score = 73.07 %
+accuracy (just for info) = 90.01 %
+[139]	validation_0-merror:0.083284	validation_1-merror:0.1	validation_0-target_score:-0.799877	validation_1-target_score:-0.730663
+target score = 80.07 %
+accuracy (just for info) = 91.67 %
+target score = 73.02 %
+accuracy (just for info) = 90.01 %
+[140]	validation_0-merror:0.08334	validation_1-merror:0.1	validation_0-target_score:-0.800717	validation_1-target_score:-0.73022
+target score = 80.15 %
+accuracy (just for info) = 91.67 %
+target score = 72.84 %
+accuracy (just for info) = 90.03 %
+[141]	validation_0-merror:0.083452	validation_1-merror:0.099721	validation_0-target_score:-0.801501	validation_1-target_score:-0.72845
+target score = 80.24 %
+accuracy (just for info) = 91.70 %
+target score = 73.06 %
+accuracy (just for info) = 90.01 %
+[142]	validation_0-merror:0.0832	validation_1-merror:0.1	validation_0-target_score:-0.802398	validation_1-target_score:-0.730552
+target score = 80.27 %
+accuracy (just for info) = 91.71 %
+target score = 73.10 %
+accuracy (just for info) = 90.01 %
+[143]	validation_0-merror:0.083004	validation_1-merror:0.1	validation_0-target_score:-0.802678	validation_1-target_score:-0.730995
+target score = 80.28 %
+accuracy (just for info) = 91.72 %
+target score = 73.11 %
+accuracy (just for info) = 90.01 %
+[144]	validation_0-merror:0.08292	validation_1-merror:0.1	validation_0-target_score:-0.80279	validation_1-target_score:-0.731105
+target score = 80.27 %
+accuracy (just for info) = 91.72 %
+target score = 73.17 %
+accuracy (just for info) = 89.98 %
+[145]	validation_0-merror:0.082864	validation_1-merror:0.100279	validation_0-target_score:-0.802734	validation_1-target_score:-0.731659
+target score = 80.28 %
+accuracy (just for info) = 91.72 %
+target score = 73.03 %
+accuracy (just for info) = 90.00 %
+[146]	validation_0-merror:0.08292	validation_1-merror:0.100168	validation_0-target_score:-0.802846	validation_1-target_score:-0.730331
+target score = 80.34 %
+accuracy (just for info) = 91.75 %
+target score = 72.98 %
+accuracy (just for info) = 89.98 %
+[147]	validation_0-merror:0.082612	validation_1-merror:0.100279	validation_0-target_score:-0.80335	validation_1-target_score:-0.729778
+target score = 80.41 %
+accuracy (just for info) = 91.77 %
+target score = 72.96 %
+accuracy (just for info) = 89.98 %
+[148]	validation_0-merror:0.082443	validation_1-merror:0.100279	validation_0-target_score:-0.804079	validation_1-target_score:-0.729556
+target score = 80.52 %
+accuracy (just for info) = 91.78 %
+target score = 73.01 %
+accuracy (just for info) = 89.95 %
+[149]	validation_0-merror:0.082275	validation_1-merror:0.100559	validation_0-target_score:-0.805199	validation_1-target_score:-0.73011
+target score = 80.59 %
+accuracy (just for info) = 91.79 %
+target score = 73.01 %
+accuracy (just for info) = 89.95 %
+[150]	validation_0-merror:0.082219	validation_1-merror:0.100559	validation_0-target_score:-0.805871	validation_1-target_score:-0.73011
+target score = 80.64 %
+accuracy (just for info) = 91.79 %
+target score = 73.09 %
+accuracy (just for info) = 89.96 %
+[151]	validation_0-merror:0.082163	validation_1-merror:0.100503	validation_0-target_score:-0.806432	validation_1-target_score:-0.730884
+target score = 80.74 %
+accuracy (just for info) = 91.80 %
+target score = 73.07 %
+accuracy (just for info) = 89.97 %
+[152]	validation_0-merror:0.082163	validation_1-merror:0.100503	validation_0-target_score:-0.80744	validation_1-target_score:-0.730663
+target score = 80.76 %
+accuracy (just for info) = 91.83 %
+target score = 73.06 %
+accuracy (just for info) = 89.97 %
+[153]	validation_0-merror:0.081911	validation_1-merror:0.100447	validation_0-target_score:-0.807552	validation_1-target_score:-0.730552
+target score = 80.76 %
+accuracy (just for info) = 91.84 %
+target score = 73.04 %
+accuracy (just for info) = 89.97 %
+[154]	validation_0-merror:0.081827	validation_1-merror:0.100391	validation_0-target_score:-0.807552	validation_1-target_score:-0.730442
+target score = 80.90 %
+accuracy (just for info) = 91.86 %
+target score = 73.08 %
+accuracy (just for info) = 89.97 %
+[155]	validation_0-merror:0.081658	validation_1-merror:0.100391	validation_0-target_score:-0.808953	validation_1-target_score:-0.730773
+target score = 81.02 %
+accuracy (just for info) = 91.89 %
+target score = 73.07 %
+accuracy (just for info) = 89.96 %
+[156]	validation_0-merror:0.081518	validation_1-merror:0.100503	validation_0-target_score:-0.810185	validation_1-target_score:-0.730663
+target score = 81.10 %
+accuracy (just for info) = 91.90 %
+target score = 73.06 %
+accuracy (just for info) = 89.96 %
+[157]	validation_0-merror:0.081294	validation_1-merror:0.100559	validation_0-target_score:-0.81097	validation_1-target_score:-0.730552
+target score = 81.14 %
+accuracy (just for info) = 91.93 %
+target score = 73.02 %
+accuracy (just for info) = 89.94 %
+[158]	validation_0-merror:0.081154	validation_1-merror:0.100671	validation_0-target_score:-0.811362	validation_1-target_score:-0.73022
+target score = 81.17 %
+accuracy (just for info) = 91.94 %
+target score = 73.04 %
+accuracy (just for info) = 89.94 %
+[159]	validation_0-merror:0.081126	validation_1-merror:0.100671	validation_0-target_score:-0.811698	validation_1-target_score:-0.730442
+target score = 81.25 %
+accuracy (just for info) = 91.94 %
+target score = 73.06 %
+accuracy (just for info) = 89.94 %
+[160]	validation_0-merror:0.080761	validation_1-merror:0.100671	validation_0-target_score:-0.812539	validation_1-target_score:-0.730552
+target score = 81.38 %
+accuracy (just for info) = 91.95 %
+target score = 73.03 %
+accuracy (just for info) = 89.93 %
+[161]	validation_0-merror:0.080705	validation_1-merror:0.100838	validation_0-target_score:-0.813827	validation_1-target_score:-0.730331
+target score = 81.43 %
+accuracy (just for info) = 91.97 %
+target score = 72.98 %
+accuracy (just for info) = 89.94 %
+[162]	validation_0-merror:0.080509	validation_1-merror:0.100615	validation_0-target_score:-0.814275	validation_1-target_score:-0.729778
+target score = 81.44 %
+accuracy (just for info) = 91.99 %
+target score = 73.00 %
+accuracy (just for info) = 89.97 %
+[163]	validation_0-merror:0.080369	validation_1-merror:0.100335	validation_0-target_score:-0.814443	validation_1-target_score:-0.729999
+target score = 81.47 %
+accuracy (just for info) = 92.00 %
+target score = 72.98 %
+accuracy (just for info) = 89.99 %
+[164]	validation_0-merror:0.080285	validation_1-merror:0.100168	validation_0-target_score:-0.814724	validation_1-target_score:-0.729778
+target score = 81.46 %
+accuracy (just for info) = 92.01 %
+target score = 73.00 %
+accuracy (just for info) = 89.98 %
+[165]	validation_0-merror:0.080257	validation_1-merror:0.100224	validation_0-target_score:-0.814611	validation_1-target_score:-0.729999
+target score = 81.50 %
+accuracy (just for info) = 92.01 %
+target score = 73.02 %
+accuracy (just for info) = 89.99 %
+[166]	validation_0-merror:0.080117	validation_1-merror:0.100168	validation_0-target_score:-0.815004	validation_1-target_score:-0.73022
+target score = 81.59 %
+accuracy (just for info) = 92.02 %
+target score = 73.11 %
+accuracy (just for info) = 90.00 %
+[167]	validation_0-merror:0.080117	validation_1-merror:0.100056	validation_0-target_score:-0.8159	validation_1-target_score:-0.731105
+target score = 81.69 %
+accuracy (just for info) = 92.03 %
+target score = 73.01 %
+accuracy (just for info) = 90.01 %
+[168]	validation_0-merror:0.080004	validation_1-merror:0.1	validation_0-target_score:-0.816909	validation_1-target_score:-0.73011
+target score = 81.72 %
+accuracy (just for info) = 92.04 %
+target score = 73.01 %
+accuracy (just for info) = 90.01 %
+[169]	validation_0-merror:0.079752	validation_1-merror:0.100056	validation_0-target_score:-0.817189	validation_1-target_score:-0.73011
+target score = 81.84 %
+accuracy (just for info) = 92.05 %
+target score = 72.98 %
+accuracy (just for info) = 90.00 %
+[170]	validation_0-merror:0.079584	validation_1-merror:0.100112	validation_0-target_score:-0.818421	validation_1-target_score:-0.729778
+target score = 81.86 %
+accuracy (just for info) = 92.05 %
+target score = 72.93 %
+accuracy (just for info) = 90.01 %
+[171]	validation_0-merror:0.079612	validation_1-merror:0.100112	validation_0-target_score:-0.818589	validation_1-target_score:-0.729335
+target score = 81.97 %
+accuracy (just for info) = 92.08 %
+target score = 72.96 %
+accuracy (just for info) = 90.00 %
+[172]	validation_0-merror:0.079332	validation_1-merror:0.100112	validation_0-target_score:-0.819654	validation_1-target_score:-0.729556
+target score = 81.98 %
+accuracy (just for info) = 92.08 %
+target score = 73.01 %
+accuracy (just for info) = 90.02 %
+[173]	validation_0-merror:0.079276	validation_1-merror:0.099944	validation_0-target_score:-0.819766	validation_1-target_score:-0.73011
+target score = 82.01 %
+accuracy (just for info) = 92.09 %
+target score = 72.98 %
+accuracy (just for info) = 90.02 %
+[174]	validation_0-merror:0.079135	validation_1-merror:0.099888	validation_0-target_score:-0.820102	validation_1-target_score:-0.729778
+target score = 82.02 %
+accuracy (just for info) = 92.10 %
+target score = 72.97 %
+accuracy (just for info) = 90.01 %
+[175]	validation_0-merror:0.079079	validation_1-merror:0.1	validation_0-target_score:-0.820214	validation_1-target_score:-0.729667
+target score = 82.06 %
+accuracy (just for info) = 92.12 %
+target score = 72.86 %
+accuracy (just for info) = 89.98 %
+[176]	validation_0-merror:0.078855	validation_1-merror:0.100335	validation_0-target_score:-0.82055	validation_1-target_score:-0.72856
+target score = 82.12 %
+accuracy (just for info) = 92.14 %
+target score = 72.84 %
+accuracy (just for info) = 89.99 %
+[177]	validation_0-merror:0.078687	validation_1-merror:0.100224	validation_0-target_score:-0.821166	validation_1-target_score:-0.72845
+target score = 82.13 %
+accuracy (just for info) = 92.15 %
+target score = 72.81 %
+accuracy (just for info) = 90.01 %
+[178]	validation_0-merror:0.078631	validation_1-merror:0.100112	validation_0-target_score:-0.821279	validation_1-target_score:-0.728118
+target score = 82.13 %
+accuracy (just for info) = 92.15 %
+target score = 72.81 %
+accuracy (just for info) = 90.01 %
+[179]	validation_0-merror:0.078547	validation_1-merror:0.1	validation_0-target_score:-0.821335	validation_1-target_score:-0.728118
+target score = 82.14 %
+accuracy (just for info) = 92.16 %
+target score = 72.83 %
+accuracy (just for info) = 90.01 %
+[180]	validation_0-merror:0.078435	validation_1-merror:0.100056	validation_0-target_score:-0.821447	validation_1-target_score:-0.728339
+target score = 82.16 %
+accuracy (just for info) = 92.19 %
+target score = 72.86 %
+accuracy (just for info) = 90.01 %
+[181]	validation_0-merror:0.078238	validation_1-merror:0.100056	validation_0-target_score:-0.821559	validation_1-target_score:-0.72856
+target score = 82.18 %
+accuracy (just for info) = 92.21 %
+target score = 72.91 %
+accuracy (just for info) = 89.99 %
+[182]	validation_0-merror:0.07807	validation_1-merror:0.100168	validation_0-target_score:-0.821839	validation_1-target_score:-0.729114
+target score = 82.22 %
+accuracy (just for info) = 92.21 %
+target score = 72.88 %
+accuracy (just for info) = 89.99 %
+[183]	validation_0-merror:0.07807	validation_1-merror:0.100224	validation_0-target_score:-0.822175	validation_1-target_score:-0.728782
+target score = 82.26 %
+accuracy (just for info) = 92.23 %
+target score = 72.88 %
+accuracy (just for info) = 90.00 %
+[184]	validation_0-merror:0.07779	validation_1-merror:0.100112	validation_0-target_score:-0.822567	validation_1-target_score:-0.728782
+target score = 82.32 %
+accuracy (just for info) = 92.24 %
+target score = 72.81 %
+accuracy (just for info) = 90.01 %
+[185]	validation_0-merror:0.077706	validation_1-merror:0.100056	validation_0-target_score:-0.823239	validation_1-target_score:-0.728118
+target score = 82.35 %
+accuracy (just for info) = 92.25 %
+target score = 72.89 %
+accuracy (just for info) = 90.00 %
+[186]	validation_0-merror:0.077538	validation_1-merror:0.100112	validation_0-target_score:-0.823463	validation_1-target_score:-0.728892
+target score = 82.40 %
+accuracy (just for info) = 92.27 %
+target score = 72.83 %
+accuracy (just for info) = 90.01 %
+[187]	validation_0-merror:0.077369	validation_1-merror:0.100168	validation_0-target_score:-0.824024	validation_1-target_score:-0.728339
+target score = 82.47 %
+accuracy (just for info) = 92.26 %
+target score = 72.88 %
+accuracy (just for info) = 90.01 %
+[188]	validation_0-merror:0.077566	validation_1-merror:0.100279	validation_0-target_score:-0.824696	validation_1-target_score:-0.728782
+target score = 82.51 %
+accuracy (just for info) = 92.29 %
+target score = 72.83 %
+accuracy (just for info) = 90.02 %
+[189]	validation_0-merror:0.077285	validation_1-merror:0.100056	validation_0-target_score:-0.825144	validation_1-target_score:-0.728339
+target score = 82.53 %
+accuracy (just for info) = 92.33 %
+target score = 72.79 %
+accuracy (just for info) = 90.03 %
+[190]	validation_0-merror:0.076809	validation_1-merror:0.099944	validation_0-target_score:-0.825256	validation_1-target_score:-0.727896
+target score = 82.66 %
+accuracy (just for info) = 92.34 %
+target score = 72.87 %
+accuracy (just for info) = 90.02 %
+[191]	validation_0-merror:0.076641	validation_1-merror:0.100056	validation_0-target_score:-0.826601	validation_1-target_score:-0.728671
+target score = 82.68 %
+accuracy (just for info) = 92.36 %
+target score = 72.94 %
+accuracy (just for info) = 90.04 %
+[192]	validation_0-merror:0.076556	validation_1-merror:0.099832	validation_0-target_score:-0.826769	validation_1-target_score:-0.729446
+target score = 82.70 %
+accuracy (just for info) = 92.36 %
+target score = 72.93 %
+accuracy (just for info) = 90.03 %
+[193]	validation_0-merror:0.076528	validation_1-merror:0.099888	validation_0-target_score:-0.827049	validation_1-target_score:-0.729335
+target score = 82.86 %
+accuracy (just for info) = 92.36 %
+target score = 72.96 %
+accuracy (just for info) = 90.04 %
+[194]	validation_0-merror:0.0765	validation_1-merror:0.099665	validation_0-target_score:-0.828562	validation_1-target_score:-0.729556
+target score = 82.86 %
+accuracy (just for info) = 92.41 %
+target score = 72.76 %
+accuracy (just for info) = 90.05 %
+[195]	validation_0-merror:0.075996	validation_1-merror:0.099665	validation_0-target_score:-0.828562	validation_1-target_score:-0.727564
+Stopping. Best iteration:
+[145]	validation_0-merror:0.082864	validation_1-merror:0.100279	validation_0-target_score:-0.802734	validation_1-target_score:-0.731659
+[0, 1, 2]
+0.243806658684
+35672 17891
+['a_bi_freq_suff' 'a_three_freq_suff' 'a_four_freq_suff' 'a_five_freq_suff'
+ 'a_bi_freq_pref' 'a_three_freq_pref' 'a_four_freq_pref' 'a_five_freq_pref'
+ 'the_bi_freq_suff' 'the_three_freq_suff' 'the_four_freq_suff'
+ 'the_five_freq_suff' 'the_bi_freq_pref' 'the_three_freq_pref'
+ 'the_four_freq_pref' 'the_five_freq_pref' 'a_the_bi_freq_suff_p1'
+ 'the_a_bi_freq_suff_p1' 'a_the_three_freq_suff_p1'
+ 'the_a_three_freq_suff_p1' 'a_the_four_freq_suff_p1'
+ 'the_a_four_freq_suff_p1' 'a_the_five_freq_suff_p1'
+ 'the_a_five_freq_suff_p1' 'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1'
+ 'a_the_three_freq_pref_p1' 'the_a_three_freq_pref_p1'
+ 'a_the_four_freq_pref_p1' 'the_a_four_freq_pref_p1'
+ 'a_the_five_freq_pref_p1' 'the_a_five_freq_pref_p1'
+ 'a_the_bi_freq_suff_p10' 'the_a_bi_freq_suff_p10'
+ 'a_the_three_freq_suff_p10' 'the_a_three_freq_suff_p10'
+ 'a_the_four_freq_suff_p10' 'the_a_four_freq_suff_p10'
+ 'a_the_five_freq_suff_p10' 'the_a_five_freq_suff_p10'
+ 'a_the_bi_freq_pref_p10' 'the_a_bi_freq_pref_p10'
+ 'a_the_three_freq_pref_p10' 'the_a_three_freq_pref_p10'
+ 'a_the_four_freq_pref_p10' 'the_a_four_freq_pref_p10'
+ 'a_the_five_freq_pref_p10' 'the_a_five_freq_pref_p10'
+ 'a_the_bi_freq_suff_p100' 'the_a_bi_freq_suff_p100'
+ 'a_the_three_freq_suff_p100' 'the_a_three_freq_suff_p100'
+ 'a_the_four_freq_suff_p100' 'the_a_four_freq_suff_p100'
+ 'a_the_five_freq_suff_p100' 'the_a_five_freq_suff_p100'
+ 'a_the_bi_freq_pref_p100' 'the_a_bi_freq_pref_p100'
+ 'a_the_three_freq_pref_p100' 'the_a_three_freq_pref_p100'
+ 'a_the_four_freq_pref_p100' 'the_a_four_freq_pref_p100'
+ 'a_the_five_freq_pref_p100' 'the_a_five_freq_pref_p100' 'st_with_v'
+ 'article']
+target score = 67.21 %
+accuracy (just for info) = 89.16 %
+target score = 67.37 %
+accuracy (just for info) = 88.57 %
+[0]	validation_0-merror:0.10846	validation_1-merror:0.114527	validation_0-target_score:-0.672089	validation_1-target_score:-0.673679
+Multiple eval metrics have been passed: 'validation_1-target_score' will be used for early stopping.
+Will train until validation_1-target_score hasn't improved in 50 rounds.
+target score = 69.47 %
+accuracy (just for info) = 89.23 %
+target score = 64.97 %
+accuracy (just for info) = 88.91 %
+[1]	validation_0-merror:0.10776	validation_1-merror:0.111061	validation_0-target_score:-0.694708	validation_1-target_score:-0.649731
+target score = 67.74 %
+accuracy (just for info) = 89.04 %
+target score = 66.39 %
+accuracy (just for info) = 88.65 %
+[2]	validation_0-merror:0.10961	validation_1-merror:0.113465	validation_0-target_score:-0.677382	validation_1-target_score:-0.663944
+target score = 68.46 %
+accuracy (just for info) = 89.23 %
+target score = 66.75 %
+accuracy (just for info) = 88.79 %
+[3]	validation_0-merror:0.107704	validation_1-merror:0.113018	validation_0-target_score:-0.684568	validation_1-target_score:-0.667525
+target score = 69.41 %
+accuracy (just for info) = 89.41 %
+target score = 67.04 %
+accuracy (just for info) = 88.94 %
+[4]	validation_0-merror:0.105909	validation_1-merror:0.110614	validation_0-target_score:-0.694095	validation_1-target_score:-0.670434
+target score = 69.92 %
+accuracy (just for info) = 89.54 %
+target score = 68.02 %
+accuracy (just for info) = 88.97 %
+[5]	validation_0-merror:0.104592	validation_1-merror:0.110279	validation_0-target_score:-0.69922	validation_1-target_score:-0.68017
+target score = 70.27 %
+accuracy (just for info) = 89.63 %
+target score = 67.88 %
+accuracy (just for info) = 89.12 %
+[6]	validation_0-merror:0.103751	validation_1-merror:0.10877	validation_0-target_score:-0.702674	validation_1-target_score:-0.678827
+target score = 70.26 %
+accuracy (just for info) = 89.70 %
+target score = 68.13 %
+accuracy (just for info) = 89.12 %
+[7]	validation_0-merror:0.10305	validation_1-merror:0.108937	validation_0-target_score:-0.702563	validation_1-target_score:-0.681289
+target score = 70.46 %
+accuracy (just for info) = 89.70 %
+target score = 68.16 %
+accuracy (just for info) = 89.14 %
+[8]	validation_0-merror:0.103022	validation_1-merror:0.10877	validation_0-target_score:-0.704568	validation_1-target_score:-0.681625
+target score = 70.67 %
+accuracy (just for info) = 89.71 %
+target score = 68.45 %
+accuracy (just for info) = 89.18 %
+[9]	validation_0-merror:0.102966	validation_1-merror:0.108323	validation_0-target_score:-0.706685	validation_1-target_score:-0.684534
+target score = 70.72 %
+accuracy (just for info) = 89.77 %
+target score = 68.81 %
+accuracy (just for info) = 89.18 %
+[10]	validation_0-merror:0.102349	validation_1-merror:0.108379	validation_0-target_score:-0.707187	validation_1-target_score:-0.688115
+target score = 70.90 %
+accuracy (just for info) = 89.85 %
+target score = 68.69 %
+accuracy (just for info) = 89.20 %
+[11]	validation_0-merror:0.10148	validation_1-merror:0.108155	validation_0-target_score:-0.708969	validation_1-target_score:-0.686885
+target score = 70.92 %
+accuracy (just for info) = 89.88 %
+target score = 68.77 %
+accuracy (just for info) = 89.26 %
+[12]	validation_0-merror:0.101228	validation_1-merror:0.10754	validation_0-target_score:-0.709248	validation_1-target_score:-0.687668
+target score = 71.03 %
+accuracy (just for info) = 89.95 %
+target score = 68.96 %
+accuracy (just for info) = 89.30 %
+[13]	validation_0-merror:0.100527	validation_1-merror:0.107093	validation_0-target_score:-0.710251	validation_1-target_score:-0.68957
+target score = 71.29 %
+accuracy (just for info) = 89.95 %
+target score = 68.73 %
+accuracy (just for info) = 89.27 %
+[14]	validation_0-merror:0.100471	validation_1-merror:0.107317	validation_0-target_score:-0.712925	validation_1-target_score:-0.687332
+target score = 71.47 %
+accuracy (just for info) = 90.04 %
+target score = 69.06 %
+accuracy (just for info) = 89.33 %
+[15]	validation_0-merror:0.09963	validation_1-merror:0.106758	validation_0-target_score:-0.714652	validation_1-target_score:-0.690577
+target score = 71.56 %
+accuracy (just for info) = 90.06 %
+target score = 69.14 %
+accuracy (just for info) = 89.40 %
+[16]	validation_0-merror:0.099406	validation_1-merror:0.106031	validation_0-target_score:-0.715599	validation_1-target_score:-0.691361
+target score = 71.67 %
+accuracy (just for info) = 90.06 %
+target score = 69.07 %
+accuracy (just for info) = 89.37 %
+[17]	validation_0-merror:0.099406	validation_1-merror:0.10631	validation_0-target_score:-0.716713	validation_1-target_score:-0.690689
+target score = 71.66 %
+accuracy (just for info) = 90.11 %
+target score = 69.19 %
+accuracy (just for info) = 89.43 %
+[18]	validation_0-merror:0.098957	validation_1-merror:0.105751	validation_0-target_score:-0.716602	validation_1-target_score:-0.69192
+target score = 71.88 %
+accuracy (just for info) = 90.13 %
+target score = 69.20 %
+accuracy (just for info) = 89.41 %
+[19]	validation_0-merror:0.098733	validation_1-merror:0.105919	validation_0-target_score:-0.718774	validation_1-target_score:-0.692032
+target score = 72.19 %
+accuracy (just for info) = 90.17 %
+target score = 69.42 %
+accuracy (just for info) = 89.46 %
+[20]	validation_0-merror:0.098284	validation_1-merror:0.105472	validation_0-target_score:-0.721894	validation_1-target_score:-0.694158
+target score = 72.23 %
+accuracy (just for info) = 90.15 %
+target score = 69.57 %
+accuracy (just for info) = 89.46 %
+[21]	validation_0-merror:0.098481	validation_1-merror:0.105416	validation_0-target_score:-0.72234	validation_1-target_score:-0.695725
+target score = 72.30 %
+accuracy (just for info) = 90.19 %
+target score = 69.75 %
+accuracy (just for info) = 89.46 %
+[22]	validation_0-merror:0.098172	validation_1-merror:0.105472	validation_0-target_score:-0.722953	validation_1-target_score:-0.697516
+target score = 72.41 %
+accuracy (just for info) = 90.21 %
+target score = 70.12 %
+accuracy (just for info) = 89.48 %
+[23]	validation_0-merror:0.097892	validation_1-merror:0.105304	validation_0-target_score:-0.724123	validation_1-target_score:-0.701209
+target score = 72.48 %
+accuracy (just for info) = 90.21 %
+target score = 70.04 %
+accuracy (just for info) = 89.46 %
+[24]	validation_0-merror:0.097892	validation_1-merror:0.105416	validation_0-target_score:-0.724791	validation_1-target_score:-0.700425
+target score = 72.81 %
+accuracy (just for info) = 90.23 %
+target score = 70.33 %
+accuracy (just for info) = 89.44 %
+[25]	validation_0-merror:0.097752	validation_1-merror:0.105696	validation_0-target_score:-0.728134	validation_1-target_score:-0.703335
+target score = 72.98 %
+accuracy (just for info) = 90.27 %
+target score = 70.53 %
+accuracy (just for info) = 89.49 %
+[26]	validation_0-merror:0.097359	validation_1-merror:0.105193	validation_0-target_score:-0.729805	validation_1-target_score:-0.705349
+target score = 73.05 %
+accuracy (just for info) = 90.26 %
+target score = 70.65 %
+accuracy (just for info) = 89.50 %
+[27]	validation_0-merror:0.097415	validation_1-merror:0.105081	validation_0-target_score:-0.730529	validation_1-target_score:-0.706468
+target score = 73.13 %
+accuracy (just for info) = 90.31 %
+target score = 70.58 %
+accuracy (just for info) = 89.54 %
+[28]	validation_0-merror:0.096995	validation_1-merror:0.104578	validation_0-target_score:-0.731253	validation_1-target_score:-0.705797
+target score = 73.25 %
+accuracy (just for info) = 90.29 %
+target score = 70.73 %
+accuracy (just for info) = 89.58 %
+[29]	validation_0-merror:0.097107	validation_1-merror:0.104242	validation_0-target_score:-0.732479	validation_1-target_score:-0.707252
+target score = 73.37 %
+accuracy (just for info) = 90.31 %
+target score = 70.53 %
+accuracy (just for info) = 89.62 %
+[30]	validation_0-merror:0.096967	validation_1-merror:0.103795	validation_0-target_score:-0.733705	validation_1-target_score:-0.705349
+target score = 73.57 %
+accuracy (just for info) = 90.31 %
+target score = 70.68 %
+accuracy (just for info) = 89.61 %
+[31]	validation_0-merror:0.097023	validation_1-merror:0.103851	validation_0-target_score:-0.735655	validation_1-target_score:-0.706804
+target score = 73.67 %
+accuracy (just for info) = 90.32 %
+target score = 70.74 %
+accuracy (just for info) = 89.63 %
+[32]	validation_0-merror:0.096855	validation_1-merror:0.103683	validation_0-target_score:-0.736713	validation_1-target_score:-0.707363
+target score = 73.78 %
+accuracy (just for info) = 90.35 %
+target score = 70.80 %
+accuracy (just for info) = 89.68 %
+[33]	validation_0-merror:0.096518	validation_1-merror:0.103236	validation_0-target_score:-0.737827	validation_1-target_score:-0.708035
+target score = 73.87 %
+accuracy (just for info) = 90.34 %
+target score = 70.86 %
+accuracy (just for info) = 89.69 %
+[34]	validation_0-merror:0.096602	validation_1-merror:0.103069	validation_0-target_score:-0.738663	validation_1-target_score:-0.708594
+target score = 73.98 %
+accuracy (just for info) = 90.35 %
+target score = 71.02 %
+accuracy (just for info) = 89.70 %
+[35]	validation_0-merror:0.096518	validation_1-merror:0.102957	validation_0-target_score:-0.739777	validation_1-target_score:-0.710161
+target score = 74.17 %
+accuracy (just for info) = 90.35 %
+target score = 70.97 %
+accuracy (just for info) = 89.68 %
+[36]	validation_0-merror:0.096518	validation_1-merror:0.10318	validation_0-target_score:-0.741671	validation_1-target_score:-0.709714
+target score = 74.20 %
+accuracy (just for info) = 90.36 %
+target score = 71.07 %
+accuracy (just for info) = 89.67 %
+[37]	validation_0-merror:0.096406	validation_1-merror:0.103292	validation_0-target_score:-0.742006	validation_1-target_score:-0.710721
+target score = 74.22 %
+accuracy (just for info) = 90.40 %
+target score = 71.14 %
+accuracy (just for info) = 89.69 %
+[38]	validation_0-merror:0.095986	validation_1-merror:0.103069	validation_0-target_score:-0.742228	validation_1-target_score:-0.711392
+target score = 74.36 %
+accuracy (just for info) = 90.39 %
+target score = 71.25 %
+accuracy (just for info) = 89.72 %
+[39]	validation_0-merror:0.096154	validation_1-merror:0.102789	validation_0-target_score:-0.743565	validation_1-target_score:-0.712511
+target score = 74.45 %
+accuracy (just for info) = 90.41 %
+target score = 71.25 %
+accuracy (just for info) = 89.71 %
+[40]	validation_0-merror:0.095902	validation_1-merror:0.102957	validation_0-target_score:-0.744457	validation_1-target_score:-0.712511
+target score = 74.52 %
+accuracy (just for info) = 90.40 %
+target score = 71.24 %
+accuracy (just for info) = 89.69 %
+[41]	validation_0-merror:0.09607	validation_1-merror:0.103124	validation_0-target_score:-0.745181	validation_1-target_score:-0.712399
+target score = 74.61 %
+accuracy (just for info) = 90.40 %
+target score = 71.45 %
+accuracy (just for info) = 89.68 %
+[42]	validation_0-merror:0.096042	validation_1-merror:0.10318	validation_0-target_score:-0.746072	validation_1-target_score:-0.714526
+target score = 74.66 %
+accuracy (just for info) = 90.44 %
+target score = 71.35 %
+accuracy (just for info) = 89.67 %
+[43]	validation_0-merror:0.095621	validation_1-merror:0.103404	validation_0-target_score:-0.746574	validation_1-target_score:-0.713518
+target score = 74.68 %
+accuracy (just for info) = 90.45 %
+target score = 71.32 %
+accuracy (just for info) = 89.61 %
+[44]	validation_0-merror:0.095481	validation_1-merror:0.103907	validation_0-target_score:-0.746797	validation_1-target_score:-0.713183
+target score = 74.67 %
+accuracy (just for info) = 90.45 %
+target score = 71.36 %
+accuracy (just for info) = 89.63 %
+[45]	validation_0-merror:0.095537	validation_1-merror:0.103795	validation_0-target_score:-0.746741	validation_1-target_score:-0.71363
+target score = 74.79 %
+accuracy (just for info) = 90.47 %
+target score = 71.39 %
+accuracy (just for info) = 89.67 %
+[46]	validation_0-merror:0.095313	validation_1-merror:0.103348	validation_0-target_score:-0.747855	validation_1-target_score:-0.713854
+target score = 74.80 %
+accuracy (just for info) = 90.49 %
+target score = 71.45 %
+accuracy (just for info) = 89.65 %
+[47]	validation_0-merror:0.095117	validation_1-merror:0.10346	validation_0-target_score:-0.748022	validation_1-target_score:-0.714526
+target score = 74.82 %
+accuracy (just for info) = 90.50 %
+target score = 71.49 %
+accuracy (just for info) = 89.66 %
+[48]	validation_0-merror:0.095033	validation_1-merror:0.103404	validation_0-target_score:-0.748245	validation_1-target_score:-0.714861
+target score = 75.00 %
+accuracy (just for info) = 90.51 %
+target score = 71.45 %
+accuracy (just for info) = 89.66 %
+[49]	validation_0-merror:0.094948	validation_1-merror:0.103404	validation_0-target_score:-0.750028	validation_1-target_score:-0.714526
+target score = 75.04 %
+accuracy (just for info) = 90.52 %
+target score = 71.43 %
+accuracy (just for info) = 89.65 %
+[50]	validation_0-merror:0.094864	validation_1-merror:0.10346	validation_0-target_score:-0.750362	validation_1-target_score:-0.714302
+target score = 75.06 %
+accuracy (just for info) = 90.54 %
+target score = 71.64 %
+accuracy (just for info) = 89.67 %
+[51]	validation_0-merror:0.094612	validation_1-merror:0.103348	validation_0-target_score:-0.750641	validation_1-target_score:-0.716428
+target score = 75.06 %
+accuracy (just for info) = 90.55 %
+target score = 71.54 %
+accuracy (just for info) = 89.68 %
+[52]	validation_0-merror:0.094556	validation_1-merror:0.103292	validation_0-target_score:-0.750585	validation_1-target_score:-0.715421
+target score = 75.13 %
+accuracy (just for info) = 90.55 %
+target score = 71.59 %
+accuracy (just for info) = 89.68 %
+[53]	validation_0-merror:0.094556	validation_1-merror:0.10318	validation_0-target_score:-0.751253	validation_1-target_score:-0.715868
+target score = 75.25 %
+accuracy (just for info) = 90.55 %
+target score = 71.56 %
+accuracy (just for info) = 89.67 %
+[54]	validation_0-merror:0.094556	validation_1-merror:0.103404	validation_0-target_score:-0.752479	validation_1-target_score:-0.715645
+target score = 75.21 %
+accuracy (just for info) = 90.55 %
+target score = 71.60 %
+accuracy (just for info) = 89.66 %
+[55]	validation_0-merror:0.094556	validation_1-merror:0.10346	validation_0-target_score:-0.752089	validation_1-target_score:-0.71598
+target score = 75.33 %
+accuracy (just for info) = 90.55 %
+target score = 71.68 %
+accuracy (just for info) = 89.65 %
+[56]	validation_0-merror:0.0945	validation_1-merror:0.10346	validation_0-target_score:-0.753315	validation_1-target_score:-0.716764
+target score = 75.37 %
+accuracy (just for info) = 90.55 %
+target score = 71.78 %
+accuracy (just for info) = 89.65 %
+[57]	validation_0-merror:0.094556	validation_1-merror:0.10346	validation_0-target_score:-0.753705	validation_1-target_score:-0.717771
+target score = 75.48 %
+accuracy (just for info) = 90.56 %
+target score = 71.87 %
+accuracy (just for info) = 89.68 %
+[58]	validation_0-merror:0.094472	validation_1-merror:0.103236	validation_0-target_score:-0.754763	validation_1-target_score:-0.718666
+target score = 75.49 %
+accuracy (just for info) = 90.55 %
+target score = 71.78 %
+accuracy (just for info) = 89.65 %
+[59]	validation_0-merror:0.094584	validation_1-merror:0.103516	validation_0-target_score:-0.75493	validation_1-target_score:-0.717771
+target score = 75.49 %
+accuracy (just for info) = 90.55 %
+target score = 71.91 %
+accuracy (just for info) = 89.64 %
+[60]	validation_0-merror:0.094556	validation_1-merror:0.103572	validation_0-target_score:-0.754875	validation_1-target_score:-0.719114
+target score = 75.54 %
+accuracy (just for info) = 90.54 %
+target score = 71.99 %
+accuracy (just for info) = 89.64 %
+[61]	validation_0-merror:0.094612	validation_1-merror:0.103572	validation_0-target_score:-0.755376	validation_1-target_score:-0.719897
+target score = 75.62 %
+accuracy (just for info) = 90.56 %
+target score = 72.07 %
+accuracy (just for info) = 89.68 %
+[62]	validation_0-merror:0.0945	validation_1-merror:0.103236	validation_0-target_score:-0.756156	validation_1-target_score:-0.72068
+target score = 75.57 %
+accuracy (just for info) = 90.57 %
+target score = 72.12 %
+accuracy (just for info) = 89.69 %
+[63]	validation_0-merror:0.09436	validation_1-merror:0.103124	validation_0-target_score:-0.755655	validation_1-target_score:-0.72124
+target score = 75.67 %
+accuracy (just for info) = 90.60 %
+target score = 72.10 %
+accuracy (just for info) = 89.68 %
+[64]	validation_0-merror:0.094079	validation_1-merror:0.103236	validation_0-target_score:-0.756657	validation_1-target_score:-0.721016
+target score = 75.72 %
+accuracy (just for info) = 90.61 %
+target score = 72.10 %
+accuracy (just for info) = 89.68 %
+[65]	validation_0-merror:0.094051	validation_1-merror:0.10318	validation_0-target_score:-0.757214	validation_1-target_score:-0.721016
+target score = 75.84 %
+accuracy (just for info) = 90.63 %
+target score = 72.30 %
+accuracy (just for info) = 89.69 %
+[66]	validation_0-merror:0.093827	validation_1-merror:0.103069	validation_0-target_score:-0.758384	validation_1-target_score:-0.72303
+target score = 75.84 %
+accuracy (just for info) = 90.65 %
+target score = 72.34 %
+accuracy (just for info) = 89.68 %
+[67]	validation_0-merror:0.093547	validation_1-merror:0.103236	validation_0-target_score:-0.758384	validation_1-target_score:-0.723366
+target score = 75.90 %
+accuracy (just for info) = 90.65 %
+target score = 72.37 %
+accuracy (just for info) = 89.72 %
+[68]	validation_0-merror:0.093575	validation_1-merror:0.102845	validation_0-target_score:-0.758997	validation_1-target_score:-0.723702
+target score = 75.89 %
+accuracy (just for info) = 90.67 %
+target score = 72.38 %
+accuracy (just for info) = 89.72 %
+[69]	validation_0-merror:0.093463	validation_1-merror:0.102789	validation_0-target_score:-0.758942	validation_1-target_score:-0.723814
+target score = 75.97 %
+accuracy (just for info) = 90.66 %
+target score = 72.45 %
+accuracy (just for info) = 89.70 %
+[70]	validation_0-merror:0.093463	validation_1-merror:0.102957	validation_0-target_score:-0.759666	validation_1-target_score:-0.724485
+target score = 76.08 %
+accuracy (just for info) = 90.67 %
+target score = 72.46 %
+accuracy (just for info) = 89.76 %
+[71]	validation_0-merror:0.093379	validation_1-merror:0.102398	validation_0-target_score:-0.76078	validation_1-target_score:-0.724597
+target score = 76.15 %
+accuracy (just for info) = 90.67 %
+target score = 72.34 %
+accuracy (just for info) = 89.78 %
+[72]	validation_0-merror:0.093379	validation_1-merror:0.10223	validation_0-target_score:-0.761504	validation_1-target_score:-0.723366
+target score = 76.18 %
+accuracy (just for info) = 90.69 %
+target score = 72.36 %
+accuracy (just for info) = 89.78 %
+[73]	validation_0-merror:0.093182	validation_1-merror:0.10223	validation_0-target_score:-0.761838	validation_1-target_score:-0.72359
+target score = 76.17 %
+accuracy (just for info) = 90.72 %
+target score = 72.43 %
+accuracy (just for info) = 89.78 %
+[74]	validation_0-merror:0.092958	validation_1-merror:0.102174	validation_0-target_score:-0.761727	validation_1-target_score:-0.724261
+target score = 76.27 %
+accuracy (just for info) = 90.76 %
+target score = 72.43 %
+accuracy (just for info) = 89.78 %
+[75]	validation_0-merror:0.092482	validation_1-merror:0.10223	validation_0-target_score:-0.762674	validation_1-target_score:-0.724261
+target score = 76.40 %
+accuracy (just for info) = 90.76 %
+target score = 72.48 %
+accuracy (just for info) = 89.79 %
+[76]	validation_0-merror:0.09251	validation_1-merror:0.102118	validation_0-target_score:-0.763955	validation_1-target_score:-0.724821
+target score = 76.67 %
+accuracy (just for info) = 90.75 %
+target score = 72.50 %
+accuracy (just for info) = 89.78 %
+[77]	validation_0-merror:0.092594	validation_1-merror:0.102286	validation_0-target_score:-0.766685	validation_1-target_score:-0.725045
+target score = 76.60 %
+accuracy (just for info) = 90.77 %
+target score = 72.53 %
+accuracy (just for info) = 89.77 %
+[78]	validation_0-merror:0.092369	validation_1-merror:0.102286	validation_0-target_score:-0.766017	validation_1-target_score:-0.725269
+target score = 76.79 %
+accuracy (just for info) = 90.79 %
+target score = 72.63 %
+accuracy (just for info) = 89.79 %
+[79]	validation_0-merror:0.092229	validation_1-merror:0.102118	validation_0-target_score:-0.767855	validation_1-target_score:-0.726276
+target score = 76.85 %
+accuracy (just for info) = 90.80 %
+target score = 72.66 %
+accuracy (just for info) = 89.78 %
+[80]	validation_0-merror:0.092061	validation_1-merror:0.10223	validation_0-target_score:-0.768468	validation_1-target_score:-0.726611
+target score = 76.89 %
+accuracy (just for info) = 90.81 %
+target score = 72.41 %
+accuracy (just for info) = 89.78 %
+[81]	validation_0-merror:0.091977	validation_1-merror:0.10223	validation_0-target_score:-0.768914	validation_1-target_score:-0.72415
+target score = 76.98 %
+accuracy (just for info) = 90.83 %
+target score = 72.39 %
+accuracy (just for info) = 89.77 %
+[82]	validation_0-merror:0.091837	validation_1-merror:0.102286	validation_0-target_score:-0.769805	validation_1-target_score:-0.723926
+target score = 77.01 %
+accuracy (just for info) = 90.84 %
+target score = 72.29 %
+accuracy (just for info) = 89.77 %
+[83]	validation_0-merror:0.091669	validation_1-merror:0.102454	validation_0-target_score:-0.770139	validation_1-target_score:-0.722919
+target score = 77.15 %
+accuracy (just for info) = 90.88 %
+target score = 72.43 %
+accuracy (just for info) = 89.78 %
+[84]	validation_0-merror:0.09136	validation_1-merror:0.10223	validation_0-target_score:-0.771476	validation_1-target_score:-0.724261
+target score = 77.15 %
+accuracy (just for info) = 90.92 %
+target score = 72.35 %
+accuracy (just for info) = 89.80 %
+[85]	validation_0-merror:0.090968	validation_1-merror:0.102062	validation_0-target_score:-0.771532	validation_1-target_score:-0.723478
+target score = 77.13 %
+accuracy (just for info) = 90.94 %
+target score = 72.39 %
+accuracy (just for info) = 89.79 %
+[86]	validation_0-merror:0.090715	validation_1-merror:0.102062	validation_0-target_score:-0.771253	validation_1-target_score:-0.723926
+target score = 77.27 %
+accuracy (just for info) = 90.95 %
+target score = 72.43 %
+accuracy (just for info) = 89.81 %
+[87]	validation_0-merror:0.090687	validation_1-merror:0.101895	validation_0-target_score:-0.772702	validation_1-target_score:-0.724261
+target score = 77.31 %
+accuracy (just for info) = 90.95 %
+target score = 72.45 %
+accuracy (just for info) = 89.80 %
+[88]	validation_0-merror:0.090603	validation_1-merror:0.102007	validation_0-target_score:-0.773092	validation_1-target_score:-0.724485
+target score = 77.30 %
+accuracy (just for info) = 90.99 %
+target score = 72.40 %
+accuracy (just for info) = 89.81 %
+[89]	validation_0-merror:0.090295	validation_1-merror:0.101895	validation_0-target_score:-0.773036	validation_1-target_score:-0.724038
+target score = 77.36 %
+accuracy (just for info) = 91.00 %
+target score = 72.54 %
+accuracy (just for info) = 89.81 %
+[90]	validation_0-merror:0.090183	validation_1-merror:0.101895	validation_0-target_score:-0.773593	validation_1-target_score:-0.72538
+target score = 77.44 %
+accuracy (just for info) = 90.99 %
+target score = 72.47 %
+accuracy (just for info) = 89.76 %
+[91]	validation_0-merror:0.090267	validation_1-merror:0.102398	validation_0-target_score:-0.774373	validation_1-target_score:-0.724709
+target score = 77.55 %
+accuracy (just for info) = 91.02 %
+target score = 72.35 %
+accuracy (just for info) = 89.77 %
+[92]	validation_0-merror:0.090127	validation_1-merror:0.102342	validation_0-target_score:-0.775543	validation_1-target_score:-0.723478
+target score = 77.66 %
+accuracy (just for info) = 91.02 %
+target score = 72.48 %
+accuracy (just for info) = 89.77 %
+[93]	validation_0-merror:0.090015	validation_1-merror:0.102286	validation_0-target_score:-0.776602	validation_1-target_score:-0.724821
+target score = 77.69 %
+accuracy (just for info) = 91.04 %
+target score = 72.54 %
+accuracy (just for info) = 89.78 %
+[94]	validation_0-merror:0.089762	validation_1-merror:0.10223	validation_0-target_score:-0.776936	validation_1-target_score:-0.72538
+target score = 77.71 %
+accuracy (just for info) = 91.07 %
+target score = 72.58 %
+accuracy (just for info) = 89.78 %
+[95]	validation_0-merror:0.089482	validation_1-merror:0.10223	validation_0-target_score:-0.777103	validation_1-target_score:-0.725828
+target score = 77.86 %
+accuracy (just for info) = 91.07 %
+target score = 72.72 %
+accuracy (just for info) = 89.79 %
+[96]	validation_0-merror:0.089426	validation_1-merror:0.102118	validation_0-target_score:-0.778552	validation_1-target_score:-0.727171
+target score = 77.86 %
+accuracy (just for info) = 91.08 %
+target score = 72.80 %
+accuracy (just for info) = 89.78 %
+[97]	validation_0-merror:0.089398	validation_1-merror:0.10223	validation_0-target_score:-0.778552	validation_1-target_score:-0.727954
+target score = 77.87 %
+accuracy (just for info) = 91.10 %
+target score = 72.75 %
+accuracy (just for info) = 89.77 %
+[98]	validation_0-merror:0.089286	validation_1-merror:0.102286	validation_0-target_score:-0.778663	validation_1-target_score:-0.727507
+target score = 77.88 %
+accuracy (just for info) = 91.11 %
+target score = 72.87 %
+accuracy (just for info) = 89.80 %
+[99]	validation_0-merror:0.089061	validation_1-merror:0.102007	validation_0-target_score:-0.77883	validation_1-target_score:-0.728738
+target score = 78.02 %
+accuracy (just for info) = 91.13 %
+target score = 73.00 %
+accuracy (just for info) = 89.79 %
+[100]	validation_0-merror:0.088865	validation_1-merror:0.102062	validation_0-target_score:-0.780167	validation_1-target_score:-0.729969
+target score = 78.04 %
+accuracy (just for info) = 91.12 %
+target score = 72.99 %
+accuracy (just for info) = 89.79 %
+[101]	validation_0-merror:0.088949	validation_1-merror:0.102118	validation_0-target_score:-0.780446	validation_1-target_score:-0.729857
+target score = 78.12 %
+accuracy (just for info) = 91.14 %
+target score = 72.96 %
+accuracy (just for info) = 89.78 %
+[102]	validation_0-merror:0.088781	validation_1-merror:0.10223	validation_0-target_score:-0.781226	validation_1-target_score:-0.729633
+target score = 78.22 %
+accuracy (just for info) = 91.17 %
+target score = 72.99 %
+accuracy (just for info) = 89.77 %
+[103]	validation_0-merror:0.088557	validation_1-merror:0.102286	validation_0-target_score:-0.782173	validation_1-target_score:-0.729857
+target score = 78.30 %
+accuracy (just for info) = 91.19 %
+target score = 72.94 %
+accuracy (just for info) = 89.77 %
+[104]	validation_0-merror:0.088333	validation_1-merror:0.102286	validation_0-target_score:-0.782953	validation_1-target_score:-0.729409
+target score = 78.38 %
+accuracy (just for info) = 91.20 %
+target score = 72.93 %
+accuracy (just for info) = 89.77 %
+[105]	validation_0-merror:0.088192	validation_1-merror:0.102342	validation_0-target_score:-0.783844	validation_1-target_score:-0.729297
+target score = 78.47 %
+accuracy (just for info) = 91.22 %
+target score = 73.02 %
+accuracy (just for info) = 89.76 %
+[106]	validation_0-merror:0.087968	validation_1-merror:0.102398	validation_0-target_score:-0.784735	validation_1-target_score:-0.730192
+target score = 78.42 %
+accuracy (just for info) = 91.23 %
+target score = 73.01 %
+accuracy (just for info) = 89.78 %
+[107]	validation_0-merror:0.0878	validation_1-merror:0.10223	validation_0-target_score:-0.784234	validation_1-target_score:-0.730081
+target score = 78.54 %
+accuracy (just for info) = 91.26 %
+target score = 72.82 %
+accuracy (just for info) = 89.78 %
+[108]	validation_0-merror:0.087632	validation_1-merror:0.10223	validation_0-target_score:-0.785404	validation_1-target_score:-0.728178
+target score = 78.58 %
+accuracy (just for info) = 91.27 %
+target score = 72.81 %
+accuracy (just for info) = 89.79 %
+[109]	validation_0-merror:0.087492	validation_1-merror:0.102118	validation_0-target_score:-0.785794	validation_1-target_score:-0.728066
+target score = 78.70 %
+accuracy (just for info) = 91.30 %
+target score = 72.74 %
+accuracy (just for info) = 89.79 %
+[110]	validation_0-merror:0.087183	validation_1-merror:0.102062	validation_0-target_score:-0.786964	validation_1-target_score:-0.727395
+target score = 78.75 %
+accuracy (just for info) = 91.31 %
+target score = 72.73 %
+accuracy (just for info) = 89.81 %
+[111]	validation_0-merror:0.087099	validation_1-merror:0.101895	validation_0-target_score:-0.787465	validation_1-target_score:-0.727283
+target score = 78.88 %
+accuracy (just for info) = 91.32 %
+target score = 72.74 %
+accuracy (just for info) = 89.82 %
+[112]	validation_0-merror:0.086959	validation_1-merror:0.101839	validation_0-target_score:-0.788802	validation_1-target_score:-0.727395
+target score = 78.96 %
+accuracy (just for info) = 91.31 %
+target score = 72.69 %
+accuracy (just for info) = 89.83 %
+[113]	validation_0-merror:0.087099	validation_1-merror:0.101727	validation_0-target_score:-0.789638	validation_1-target_score:-0.726947
+target score = 78.98 %
+accuracy (just for info) = 91.32 %
+target score = 72.80 %
+accuracy (just for info) = 89.84 %
+[114]	validation_0-merror:0.087015	validation_1-merror:0.101615	validation_0-target_score:-0.789805	validation_1-target_score:-0.727954
+target score = 79.09 %
+accuracy (just for info) = 91.33 %
+target score = 72.87 %
+accuracy (just for info) = 89.84 %
+[115]	validation_0-merror:0.086959	validation_1-merror:0.101559	validation_0-target_score:-0.790864	validation_1-target_score:-0.728738
+target score = 79.13 %
+accuracy (just for info) = 91.35 %
+target score = 72.83 %
+accuracy (just for info) = 89.84 %
+[116]	validation_0-merror:0.086707	validation_1-merror:0.101559	validation_0-target_score:-0.791253	validation_1-target_score:-0.72829
+target score = 79.22 %
+accuracy (just for info) = 91.38 %
+target score = 72.82 %
+accuracy (just for info) = 89.83 %
+[117]	validation_0-merror:0.086454	validation_1-merror:0.101727	validation_0-target_score:-0.792201	validation_1-target_score:-0.728178
+target score = 79.19 %
+accuracy (just for info) = 91.39 %
+target score = 72.82 %
+accuracy (just for info) = 89.80 %
+[118]	validation_0-merror:0.086342	validation_1-merror:0.101951	validation_0-target_score:-0.791866	validation_1-target_score:-0.728178
+target score = 79.24 %
+accuracy (just for info) = 91.39 %
+target score = 72.83 %
+accuracy (just for info) = 89.82 %
+[119]	validation_0-merror:0.08637	validation_1-merror:0.101839	validation_0-target_score:-0.792368	validation_1-target_score:-0.72829
+target score = 79.35 %
+accuracy (just for info) = 91.43 %
+target score = 72.73 %
+accuracy (just for info) = 89.83 %
+[120]	validation_0-merror:0.08595	validation_1-merror:0.101727	validation_0-target_score:-0.793482	validation_1-target_score:-0.727283
+target score = 79.40 %
+accuracy (just for info) = 91.44 %
+target score = 72.67 %
+accuracy (just for info) = 89.82 %
+[121]	validation_0-merror:0.085922	validation_1-merror:0.101839	validation_0-target_score:-0.794039	validation_1-target_score:-0.726723
+target score = 79.38 %
+accuracy (just for info) = 91.46 %
+target score = 72.61 %
+accuracy (just for info) = 89.83 %
+[122]	validation_0-merror:0.085641	validation_1-merror:0.101895	validation_0-target_score:-0.793816	validation_1-target_score:-0.726052
+target score = 79.36 %
+accuracy (just for info) = 91.46 %
+target score = 72.61 %
+accuracy (just for info) = 89.83 %
+[123]	validation_0-merror:0.085669	validation_1-merror:0.102118	validation_0-target_score:-0.793593	validation_1-target_score:-0.726052
+target score = 79.39 %
+accuracy (just for info) = 91.48 %
+target score = 72.58 %
+accuracy (just for info) = 89.82 %
+[124]	validation_0-merror:0.085501	validation_1-merror:0.102174	validation_0-target_score:-0.793872	validation_1-target_score:-0.725828
+target score = 79.54 %
+accuracy (just for info) = 91.48 %
+target score = 72.58 %
+accuracy (just for info) = 89.79 %
+[125]	validation_0-merror:0.085389	validation_1-merror:0.102286	validation_0-target_score:-0.795376	validation_1-target_score:-0.725828
+target score = 79.57 %
+accuracy (just for info) = 91.49 %
+target score = 72.48 %
+accuracy (just for info) = 89.78 %
+[126]	validation_0-merror:0.085389	validation_1-merror:0.102174	validation_0-target_score:-0.79571	validation_1-target_score:-0.724821
+target score = 79.62 %
+accuracy (just for info) = 91.50 %
+target score = 72.53 %
+accuracy (just for info) = 89.81 %
+[127]	validation_0-merror:0.085165	validation_1-merror:0.101895	validation_0-target_score:-0.796212	validation_1-target_score:-0.725269
+target score = 79.89 %
+accuracy (just for info) = 91.53 %
+target score = 72.53 %
+accuracy (just for info) = 89.80 %
+[128]	validation_0-merror:0.084885	validation_1-merror:0.102007	validation_0-target_score:-0.798942	validation_1-target_score:-0.725269
+target score = 79.97 %
+accuracy (just for info) = 91.55 %
+target score = 72.64 %
+accuracy (just for info) = 89.80 %
+[129]	validation_0-merror:0.084688	validation_1-merror:0.102007	validation_0-target_score:-0.799666	validation_1-target_score:-0.726388
+target score = 79.99 %
+accuracy (just for info) = 91.58 %
+target score = 72.66 %
+accuracy (just for info) = 89.81 %
+[130]	validation_0-merror:0.08438	validation_1-merror:0.101895	validation_0-target_score:-0.799889	validation_1-target_score:-0.726611
+target score = 80.00 %
+accuracy (just for info) = 91.59 %
+target score = 72.61 %
+accuracy (just for info) = 89.84 %
+[131]	validation_0-merror:0.084268	validation_1-merror:0.101615	validation_0-target_score:-0.8	validation_1-target_score:-0.726052
+target score = 80.06 %
+accuracy (just for info) = 91.62 %
+target score = 72.62 %
+accuracy (just for info) = 89.83 %
+[132]	validation_0-merror:0.083931	validation_1-merror:0.101727	validation_0-target_score:-0.800613	validation_1-target_score:-0.726164
+target score = 80.16 %
+accuracy (just for info) = 91.64 %
+target score = 72.71 %
+accuracy (just for info) = 89.83 %
+[133]	validation_0-merror:0.083847	validation_1-merror:0.101671	validation_0-target_score:-0.801616	validation_1-target_score:-0.727059
+target score = 80.20 %
+accuracy (just for info) = 91.66 %
+target score = 72.69 %
+accuracy (just for info) = 89.83 %
+[134]	validation_0-merror:0.083679	validation_1-merror:0.101727	validation_0-target_score:-0.802006	validation_1-target_score:-0.726947
+target score = 80.30 %
+accuracy (just for info) = 91.66 %
+target score = 72.68 %
+accuracy (just for info) = 89.83 %
+[135]	validation_0-merror:0.083623	validation_1-merror:0.101671	validation_0-target_score:-0.803008	validation_1-target_score:-0.726835
+target score = 80.46 %
+accuracy (just for info) = 91.67 %
+target score = 72.65 %
+accuracy (just for info) = 89.85 %
+[136]	validation_0-merror:0.083567	validation_1-merror:0.101504	validation_0-target_score:-0.804624	validation_1-target_score:-0.7265
+target score = 80.53 %
+accuracy (just for info) = 91.67 %
+target score = 72.73 %
+accuracy (just for info) = 89.85 %
+[137]	validation_0-merror:0.083595	validation_1-merror:0.101504	validation_0-target_score:-0.805348	validation_1-target_score:-0.727283
+target score = 80.54 %
+accuracy (just for info) = 91.69 %
+target score = 72.68 %
+accuracy (just for info) = 89.86 %
+[138]	validation_0-merror:0.083483	validation_1-merror:0.101448	validation_0-target_score:-0.805404	validation_1-target_score:-0.726835
+target score = 80.57 %
+accuracy (just for info) = 91.70 %
+target score = 72.65 %
+accuracy (just for info) = 89.86 %
+[139]	validation_0-merror:0.083371	validation_1-merror:0.101448	validation_0-target_score:-0.805682	validation_1-target_score:-0.7265
+target score = 80.55 %
+accuracy (just for info) = 91.72 %
+target score = 72.64 %
+accuracy (just for info) = 89.84 %
+[140]	validation_0-merror:0.083371	validation_1-merror:0.101727	validation_0-target_score:-0.80546	validation_1-target_score:-0.726388
+target score = 80.62 %
+accuracy (just for info) = 91.73 %
+target score = 72.71 %
+accuracy (just for info) = 89.84 %
+[141]	validation_0-merror:0.083006	validation_1-merror:0.101615	validation_0-target_score:-0.80624	validation_1-target_score:-0.727059
+target score = 80.63 %
+accuracy (just for info) = 91.73 %
+target score = 72.66 %
+accuracy (just for info) = 89.83 %
+[142]	validation_0-merror:0.083006	validation_1-merror:0.101671	validation_0-target_score:-0.806295	validation_1-target_score:-0.726611
+target score = 80.72 %
+accuracy (just for info) = 91.74 %
+target score = 72.67 %
+accuracy (just for info) = 89.84 %
+[143]	validation_0-merror:0.082894	validation_1-merror:0.101559	validation_0-target_score:-0.807242	validation_1-target_score:-0.726723
+target score = 80.71 %
+accuracy (just for info) = 91.74 %
+target score = 72.75 %
+accuracy (just for info) = 89.87 %
+[144]	validation_0-merror:0.08281	validation_1-merror:0.10128	validation_0-target_score:-0.807075	validation_1-target_score:-0.727507
+target score = 80.85 %
+accuracy (just for info) = 91.78 %
+target score = 72.77 %
+accuracy (just for info) = 89.87 %
+[145]	validation_0-merror:0.082558	validation_1-merror:0.101336	validation_0-target_score:-0.808524	validation_1-target_score:-0.727731
+target score = 80.94 %
+accuracy (just for info) = 91.79 %
+target score = 72.83 %
+accuracy (just for info) = 89.86 %
+[146]	validation_0-merror:0.082502	validation_1-merror:0.101448	validation_0-target_score:-0.809359	validation_1-target_score:-0.72829
+target score = 80.99 %
+accuracy (just for info) = 91.81 %
+target score = 72.78 %
+accuracy (just for info) = 89.88 %
+[147]	validation_0-merror:0.082305	validation_1-merror:0.101168	validation_0-target_score:-0.809861	validation_1-target_score:-0.727842
+target score = 81.09 %
+accuracy (just for info) = 91.83 %
+target score = 72.77 %
+accuracy (just for info) = 89.89 %
+[148]	validation_0-merror:0.082165	validation_1-merror:0.101056	validation_0-target_score:-0.810919	validation_1-target_score:-0.727731
+target score = 81.12 %
+accuracy (just for info) = 91.84 %
+target score = 72.75 %
+accuracy (just for info) = 89.88 %
+[149]	validation_0-merror:0.082025	validation_1-merror:0.101224	validation_0-target_score:-0.811198	validation_1-target_score:-0.727507
+target score = 81.18 %
+accuracy (just for info) = 91.87 %
+target score = 72.71 %
+accuracy (just for info) = 89.89 %
+[150]	validation_0-merror:0.081605	validation_1-merror:0.101056	validation_0-target_score:-0.811811	validation_1-target_score:-0.727059
+target score = 81.24 %
+accuracy (just for info) = 91.88 %
+target score = 72.83 %
+accuracy (just for info) = 89.88 %
+[151]	validation_0-merror:0.081492	validation_1-merror:0.101168	validation_0-target_score:-0.812423	validation_1-target_score:-0.72829
+target score = 81.19 %
+accuracy (just for info) = 91.89 %
+target score = 72.73 %
+accuracy (just for info) = 89.89 %
+[152]	validation_0-merror:0.081296	validation_1-merror:0.101056	validation_0-target_score:-0.811922	validation_1-target_score:-0.727283
+target score = 81.24 %
+accuracy (just for info) = 91.91 %
+target score = 72.81 %
+accuracy (just for info) = 89.89 %
+[153]	validation_0-merror:0.081128	validation_1-merror:0.101056	validation_0-target_score:-0.812423	validation_1-target_score:-0.728066
+target score = 81.32 %
+accuracy (just for info) = 91.91 %
+target score = 72.77 %
+accuracy (just for info) = 89.89 %
+[154]	validation_0-merror:0.081128	validation_1-merror:0.101056	validation_0-target_score:-0.813203	validation_1-target_score:-0.727731
+target score = 81.43 %
+accuracy (just for info) = 91.92 %
+target score = 72.87 %
+accuracy (just for info) = 89.91 %
+[155]	validation_0-merror:0.0811	validation_1-merror:0.100945	validation_0-target_score:-0.814318	validation_1-target_score:-0.728738
+target score = 81.47 %
+accuracy (just for info) = 91.92 %
+target score = 72.90 %
+accuracy (just for info) = 89.93 %
+[156]	validation_0-merror:0.080988	validation_1-merror:0.100721	validation_0-target_score:-0.814708	validation_1-target_score:-0.728962
+Stopping. Best iteration:
+[106]	validation_0-merror:0.087968	validation_1-merror:0.102398	validation_0-target_score:-0.784735	validation_1-target_score:-0.730192
+[0, 1, 2]
+0.247249633802
+35781 17782
+['a_bi_freq_suff' 'a_three_freq_suff' 'a_four_freq_suff' 'a_five_freq_suff'
+ 'a_bi_freq_pref' 'a_three_freq_pref' 'a_four_freq_pref' 'a_five_freq_pref'
+ 'the_bi_freq_suff' 'the_three_freq_suff' 'the_four_freq_suff'
+ 'the_five_freq_suff' 'the_bi_freq_pref' 'the_three_freq_pref'
+ 'the_four_freq_pref' 'the_five_freq_pref' 'a_the_bi_freq_suff_p1'
+ 'the_a_bi_freq_suff_p1' 'a_the_three_freq_suff_p1'
+ 'the_a_three_freq_suff_p1' 'a_the_four_freq_suff_p1'
+ 'the_a_four_freq_suff_p1' 'a_the_five_freq_suff_p1'
+ 'the_a_five_freq_suff_p1' 'a_the_bi_freq_pref_p1' 'the_a_bi_freq_pref_p1'
+ 'a_the_three_freq_pref_p1' 'the_a_three_freq_pref_p1'
+ 'a_the_four_freq_pref_p1' 'the_a_four_freq_pref_p1'
+ 'a_the_five_freq_pref_p1' 'the_a_five_freq_pref_p1'
+ 'a_the_bi_freq_suff_p10' 'the_a_bi_freq_suff_p10'
+ 'a_the_three_freq_suff_p10' 'the_a_three_freq_suff_p10'
+ 'a_the_four_freq_suff_p10' 'the_a_four_freq_suff_p10'
+ 'a_the_five_freq_suff_p10' 'the_a_five_freq_suff_p10'
+ 'a_the_bi_freq_pref_p10' 'the_a_bi_freq_pref_p10'
+ 'a_the_three_freq_pref_p10' 'the_a_three_freq_pref_p10'
+ 'a_the_four_freq_pref_p10' 'the_a_four_freq_pref_p10'
+ 'a_the_five_freq_pref_p10' 'the_a_five_freq_pref_p10'
+ 'a_the_bi_freq_suff_p100' 'the_a_bi_freq_suff_p100'
+ 'a_the_three_freq_suff_p100' 'the_a_three_freq_suff_p100'
+ 'a_the_four_freq_suff_p100' 'the_a_four_freq_suff_p100'
+ 'a_the_five_freq_suff_p100' 'the_a_five_freq_suff_p100'
+ 'a_the_bi_freq_pref_p100' 'the_a_bi_freq_pref_p100'
+ 'a_the_three_freq_pref_p100' 'the_a_three_freq_pref_p100'
+ 'a_the_four_freq_pref_p100' 'the_a_four_freq_pref_p100'
+ 'a_the_five_freq_pref_p100' 'the_a_five_freq_pref_p100' 'st_with_v'
+ 'article']
+target score = 68.31 %
+accuracy (just for info) = 88.97 %
+target score = 66.07 %
+accuracy (just for info) = 88.80 %
+[0]	validation_0-merror:0.11031	validation_1-merror:0.11208	validation_0-target_score:-0.68308	validation_1-target_score:-0.66072
+Multiple eval metrics have been passed: 'validation_1-target_score' will be used for early stopping.
+Will train until validation_1-target_score hasn't improved in 50 rounds.
+target score = 67.35 %
+accuracy (just for info) = 89.27 %
+target score = 66.66 %
+accuracy (just for info) = 89.01 %
+[1]	validation_0-merror:0.10732	validation_1-merror:0.109943	validation_0-target_score:-0.673455	validation_1-target_score:-0.666554
+target score = 67.70 %
+accuracy (just for info) = 89.15 %
+target score = 67.24 %
+accuracy (just for info) = 88.84 %
+[2]	validation_0-merror:0.110785	validation_1-merror:0.113654	validation_0-target_score:-0.677016	validation_1-target_score:-0.672389
+target score = 67.39 %
+accuracy (just for info) = 89.23 %
+target score = 67.52 %
+accuracy (just for info) = 88.93 %
+[3]	validation_0-merror:0.109164	validation_1-merror:0.112811	validation_0-target_score:-0.6739	validation_1-target_score:-0.675194
+target score = 69.18 %
+accuracy (just for info) = 89.21 %
+target score = 68.81 %
+accuracy (just for info) = 88.90 %
+[4]	validation_0-merror:0.107878	validation_1-merror:0.111742	validation_0-target_score:-0.691816	validation_1-target_score:-0.688096
+target score = 69.06 %
+accuracy (just for info) = 89.29 %
+target score = 68.47 %
+accuracy (just for info) = 88.83 %
+[5]	validation_0-merror:0.107096	validation_1-merror:0.111686	validation_0-target_score:-0.690591	validation_1-target_score:-0.68473
+target score = 68.96 %
+accuracy (just for info) = 89.32 %
+target score = 68.60 %
+accuracy (just for info) = 88.83 %
+[6]	validation_0-merror:0.106872	validation_1-merror:0.111798	validation_0-target_score:-0.689646	validation_1-target_score:-0.685964
+target score = 69.29 %
+accuracy (just for info) = 89.35 %
+target score = 68.94 %
+accuracy (just for info) = 88.92 %
+[7]	validation_0-merror:0.106453	validation_1-merror:0.110842	validation_0-target_score:-0.692873	validation_1-target_score:-0.689442
+target score = 69.62 %
+accuracy (just for info) = 89.45 %
+target score = 69.19 %
+accuracy (just for info) = 89.03 %
+[8]	validation_0-merror:0.105894	validation_1-merror:0.110111	validation_0-target_score:-0.696155	validation_1-target_score:-0.691911
+target score = 69.79 %
+accuracy (just for info) = 89.56 %
+target score = 68.79 %
+accuracy (just for info) = 89.15 %
+[9]	validation_0-merror:0.104413	validation_1-merror:0.108537	validation_0-target_score:-0.697936	validation_1-target_score:-0.687872
+target score = 69.87 %
+accuracy (just for info) = 89.64 %
+target score = 68.93 %
+accuracy (just for info) = 89.18 %
+[10]	validation_0-merror:0.10363	validation_1-merror:0.108199	validation_0-target_score:-0.698715	validation_1-target_score:-0.68933
+target score = 69.88 %
+accuracy (just for info) = 89.72 %
+target score = 69.03 %
+accuracy (just for info) = 89.26 %
+[11]	validation_0-merror:0.102904	validation_1-merror:0.107356	validation_0-target_score:-0.698826	validation_1-target_score:-0.69034
+target score = 70.18 %
+accuracy (just for info) = 89.77 %
+target score = 69.42 %
+accuracy (just for info) = 89.27 %
+[12]	validation_0-merror:0.102345	validation_1-merror:0.107356	validation_0-target_score:-0.701831	validation_1-target_score:-0.694155
+target score = 70.31 %
+accuracy (just for info) = 89.80 %
+target score = 69.80 %
+accuracy (just for info) = 89.34 %
+[13]	validation_0-merror:0.101981	validation_1-merror:0.106625	validation_0-target_score:-0.703055	validation_1-target_score:-0.697969
+target score = 70.64 %
+accuracy (just for info) = 89.83 %
+target score = 69.81 %
+accuracy (just for info) = 89.34 %
+[14]	validation_0-merror:0.101758	validation_1-merror:0.107075	validation_0-target_score:-0.706393	validation_1-target_score:-0.698081
+target score = 70.78 %
+accuracy (just for info) = 89.78 %
+target score = 70.20 %
+accuracy (just for info) = 89.35 %
+[15]	validation_0-merror:0.102177	validation_1-merror:0.106793	validation_0-target_score:-0.70784	validation_1-target_score:-0.702008
+target score = 70.92 %
+accuracy (just for info) = 89.81 %
+target score = 70.29 %
+accuracy (just for info) = 89.41 %
+[16]	validation_0-merror:0.101898	validation_1-merror:0.106119	validation_0-target_score:-0.709231	validation_1-target_score:-0.702906
+target score = 71.14 %
+accuracy (just for info) = 89.87 %
+target score = 70.41 %
+accuracy (just for info) = 89.52 %
+[17]	validation_0-merror:0.101311	validation_1-merror:0.104825	validation_0-target_score:-0.7114	validation_1-target_score:-0.70414
+target score = 71.36 %
+accuracy (just for info) = 89.92 %
+target score = 70.46 %
+accuracy (just for info) = 89.64 %
+[18]	validation_0-merror:0.100836	validation_1-merror:0.103757	validation_0-target_score:-0.71357	validation_1-target_score:-0.704589
+target score = 71.47 %
+accuracy (just for info) = 89.92 %
+target score = 70.32 %
+accuracy (just for info) = 89.65 %
+[19]	validation_0-merror:0.100808	validation_1-merror:0.103532	validation_0-target_score:-0.714739	validation_1-target_score:-0.703242
+target score = 71.52 %
+accuracy (just for info) = 89.94 %
+target score = 70.47 %
+accuracy (just for info) = 89.69 %
+[20]	validation_0-merror:0.100612	validation_1-merror:0.103082	validation_0-target_score:-0.71524	validation_1-target_score:-0.704701
+target score = 71.80 %
+accuracy (just for info) = 89.98 %
+target score = 70.64 %
+accuracy (just for info) = 89.71 %
+[21]	validation_0-merror:0.100249	validation_1-merror:0.102857	validation_0-target_score:-0.718021	validation_1-target_score:-0.706384
+target score = 71.91 %
+accuracy (just for info) = 90.01 %
+target score = 70.60 %
+accuracy (just for info) = 89.71 %
+[22]	validation_0-merror:0.099969	validation_1-merror:0.102857	validation_0-target_score:-0.719134	validation_1-target_score:-0.706047
+target score = 72.15 %
+accuracy (just for info) = 90.03 %
+target score = 70.86 %
+accuracy (just for info) = 89.73 %
+[23]	validation_0-merror:0.099718	validation_1-merror:0.102744	validation_0-target_score:-0.721471	validation_1-target_score:-0.708628
+target score = 72.28 %
+accuracy (just for info) = 90.03 %
+target score = 71.12 %
+accuracy (just for info) = 89.74 %
+[24]	validation_0-merror:0.09969	validation_1-merror:0.102632	validation_0-target_score:-0.722751	validation_1-target_score:-0.711208
+target score = 72.33 %
+accuracy (just for info) = 90.02 %
+target score = 71.06 %
+accuracy (just for info) = 89.80 %
+[25]	validation_0-merror:0.09983	validation_1-merror:0.102182	validation_0-target_score:-0.723252	validation_1-target_score:-0.710647
+target score = 72.50 %
+accuracy (just for info) = 90.03 %
+target score = 71.15 %
+accuracy (just for info) = 89.80 %
+[26]	validation_0-merror:0.099718	validation_1-merror:0.102013	validation_0-target_score:-0.725032	validation_1-target_score:-0.711545
+target score = 72.46 %
+accuracy (just for info) = 90.04 %
+target score = 71.29 %
+accuracy (just for info) = 89.80 %
+[27]	validation_0-merror:0.099606	validation_1-merror:0.10207	validation_0-target_score:-0.724587	validation_1-target_score:-0.712891
+target score = 72.51 %
+accuracy (just for info) = 90.04 %
+target score = 71.36 %
+accuracy (just for info) = 89.82 %
+[28]	validation_0-merror:0.099634	validation_1-merror:0.101957	validation_0-target_score:-0.725143	validation_1-target_score:-0.713564
+target score = 72.71 %
+accuracy (just for info) = 90.08 %
+target score = 71.10 %
+accuracy (just for info) = 89.83 %
+[29]	validation_0-merror:0.099271	validation_1-merror:0.101788	validation_0-target_score:-0.727091	validation_1-target_score:-0.710984
+target score = 72.59 %
+accuracy (just for info) = 90.07 %
+target score = 71.20 %
+accuracy (just for info) = 89.85 %
+[30]	validation_0-merror:0.099326	validation_1-merror:0.101676	validation_0-target_score:-0.725922	validation_1-target_score:-0.711994
+target score = 72.72 %
+accuracy (just for info) = 90.08 %
+target score = 71.20 %
+accuracy (just for info) = 89.85 %
+[31]	validation_0-merror:0.099243	validation_1-merror:0.101563	validation_0-target_score:-0.727202	validation_1-target_score:-0.711994
+target score = 72.75 %
+accuracy (just for info) = 90.08 %
+target score = 71.36 %
+accuracy (just for info) = 89.84 %
+[32]	validation_0-merror:0.099215	validation_1-merror:0.10162	validation_0-target_score:-0.72748	validation_1-target_score:-0.713564
+target score = 72.91 %
+accuracy (just for info) = 90.09 %
+target score = 71.36 %
+accuracy (just for info) = 89.87 %
+[33]	validation_0-merror:0.099159	validation_1-merror:0.101282	validation_0-target_score:-0.729094	validation_1-target_score:-0.713564
+target score = 73.03 %
+accuracy (just for info) = 90.12 %
+target score = 71.46 %
+accuracy (just for info) = 89.87 %
+[34]	validation_0-merror:0.098823	validation_1-merror:0.101338	validation_0-target_score:-0.730318	validation_1-target_score:-0.714574
+target score = 73.19 %
+accuracy (just for info) = 90.09 %
+target score = 71.64 %
+accuracy (just for info) = 89.88 %
+[35]	validation_0-merror:0.099103	validation_1-merror:0.10117	validation_0-target_score:-0.731931	validation_1-target_score:-0.716369
+target score = 73.36 %
+accuracy (just for info) = 90.12 %
+target score = 71.68 %
+accuracy (just for info) = 89.93 %
+[36]	validation_0-merror:0.098795	validation_1-merror:0.10072	validation_0-target_score:-0.7336	validation_1-target_score:-0.716818
+target score = 73.47 %
+accuracy (just for info) = 90.11 %
+target score = 71.83 %
+accuracy (just for info) = 89.95 %
+[37]	validation_0-merror:0.098879	validation_1-merror:0.100495	validation_0-target_score:-0.734713	validation_1-target_score:-0.718277
+target score = 73.46 %
+accuracy (just for info) = 90.16 %
+target score = 71.68 %
+accuracy (just for info) = 89.93 %
+[38]	validation_0-merror:0.09846	validation_1-merror:0.10072	validation_0-target_score:-0.734602	validation_1-target_score:-0.716818
+target score = 73.53 %
+accuracy (just for info) = 90.17 %
+target score = 71.97 %
+accuracy (just for info) = 89.97 %
+[39]	validation_0-merror:0.098376	validation_1-merror:0.100326	validation_0-target_score:-0.735325	validation_1-target_score:-0.719735
+target score = 73.66 %
+accuracy (just for info) = 90.19 %
+target score = 72.27 %
+accuracy (just for info) = 89.98 %
+[40]	validation_0-merror:0.098097	validation_1-merror:0.100157	validation_0-target_score:-0.736605	validation_1-target_score:-0.722652
+target score = 73.75 %
+accuracy (just for info) = 90.20 %
+target score = 72.29 %
+accuracy (just for info) = 90.00 %
+[41]	validation_0-merror:0.098041	validation_1-merror:0.100045	validation_0-target_score:-0.737495	validation_1-target_score:-0.722877
+target score = 73.73 %
+accuracy (just for info) = 90.18 %
+target score = 72.16 %
+accuracy (just for info) = 90.00 %
+[42]	validation_0-merror:0.098153	validation_1-merror:0.099989	validation_0-target_score:-0.737273	validation_1-target_score:-0.721643
+target score = 73.90 %
+accuracy (just for info) = 90.21 %
+target score = 72.47 %
+accuracy (just for info) = 90.04 %
+[43]	validation_0-merror:0.097901	validation_1-merror:0.099595	validation_0-target_score:-0.738997	validation_1-target_score:-0.724672
+target score = 73.96 %
+accuracy (just for info) = 90.22 %
+target score = 72.58 %
+accuracy (just for info) = 90.06 %
+[44]	validation_0-merror:0.097817	validation_1-merror:0.09937	validation_0-target_score:-0.739554	validation_1-target_score:-0.725794
+target score = 74.02 %
+accuracy (just for info) = 90.22 %
+target score = 72.48 %
+accuracy (just for info) = 90.04 %
+[45]	validation_0-merror:0.097845	validation_1-merror:0.099595	validation_0-target_score:-0.740221	validation_1-target_score:-0.724784
+target score = 74.04 %
+accuracy (just for info) = 90.23 %
+target score = 72.41 %
+accuracy (just for info) = 90.01 %
+[46]	validation_0-merror:0.097705	validation_1-merror:0.099876	validation_0-target_score:-0.740388	validation_1-target_score:-0.724111
+target score = 74.18 %
+accuracy (just for info) = 90.24 %
+target score = 72.47 %
+accuracy (just for info) = 90.02 %
+[47]	validation_0-merror:0.097622	validation_1-merror:0.09982	validation_0-target_score:-0.741779	validation_1-target_score:-0.724672
+target score = 74.20 %
+accuracy (just for info) = 90.23 %
+target score = 72.59 %
+accuracy (just for info) = 90.02 %
+[48]	validation_0-merror:0.097705	validation_1-merror:0.099764	validation_0-target_score:-0.742002	validation_1-target_score:-0.725906
+target score = 74.23 %
+accuracy (just for info) = 90.24 %
+target score = 72.64 %
+accuracy (just for info) = 90.03 %
+[49]	validation_0-merror:0.097594	validation_1-merror:0.099651	validation_0-target_score:-0.742336	validation_1-target_score:-0.726355
+target score = 74.26 %
+accuracy (just for info) = 90.25 %
+target score = 72.76 %
+accuracy (just for info) = 90.05 %
+[50]	validation_0-merror:0.097454	validation_1-merror:0.099483	validation_0-target_score:-0.742614	validation_1-target_score:-0.727589
+target score = 74.41 %
+accuracy (just for info) = 90.26 %
+target score = 72.71 %
+accuracy (just for info) = 90.05 %
+[51]	validation_0-merror:0.097398	validation_1-merror:0.099483	validation_0-target_score:-0.744061	validation_1-target_score:-0.72714
+target score = 74.52 %
+accuracy (just for info) = 90.28 %
+target score = 72.78 %
+accuracy (just for info) = 90.06 %
+[52]	validation_0-merror:0.09723	validation_1-merror:0.099483	validation_0-target_score:-0.745173	validation_1-target_score:-0.727813
+target score = 74.63 %
+accuracy (just for info) = 90.29 %
+target score = 72.93 %
+accuracy (just for info) = 90.02 %
+[53]	validation_0-merror:0.097147	validation_1-merror:0.09982	validation_0-target_score:-0.746286	validation_1-target_score:-0.729272
+target score = 74.71 %
+accuracy (just for info) = 90.28 %
+target score = 72.93 %
+accuracy (just for info) = 90.04 %
+[54]	validation_0-merror:0.097174	validation_1-merror:0.099595	validation_0-target_score:-0.747065	validation_1-target_score:-0.729272
+target score = 74.76 %
+accuracy (just for info) = 90.29 %
+target score = 72.93 %
+accuracy (just for info) = 90.03 %
+[55]	validation_0-merror:0.097091	validation_1-merror:0.099651	validation_0-target_score:-0.747566	validation_1-target_score:-0.729272
+target score = 74.83 %
+accuracy (just for info) = 90.30 %
+target score = 72.96 %
+accuracy (just for info) = 90.05 %
+[56]	validation_0-merror:0.097035	validation_1-merror:0.099483	validation_0-target_score:-0.748289	validation_1-target_score:-0.729608
+target score = 74.85 %
+accuracy (just for info) = 90.32 %
+target score = 72.93 %
+accuracy (just for info) = 90.05 %
+[57]	validation_0-merror:0.096783	validation_1-merror:0.099483	validation_0-target_score:-0.748456	validation_1-target_score:-0.729272
+target score = 74.92 %
+accuracy (just for info) = 90.32 %
+target score = 72.87 %
+accuracy (just for info) = 90.04 %
+[58]	validation_0-merror:0.096811	validation_1-merror:0.099595	validation_0-target_score:-0.749179	validation_1-target_score:-0.728711
+target score = 75.03 %
+accuracy (just for info) = 90.32 %
+target score = 72.86 %
+accuracy (just for info) = 90.05 %
+[59]	validation_0-merror:0.096867	validation_1-merror:0.099539	validation_0-target_score:-0.750292	validation_1-target_score:-0.728599
+target score = 75.08 %
+accuracy (just for info) = 90.36 %
+target score = 72.81 %
+accuracy (just for info) = 90.00 %
+[60]	validation_0-merror:0.096476	validation_1-merror:0.100045	validation_0-target_score:-0.750793	validation_1-target_score:-0.72815
+target score = 75.13 %
+accuracy (just for info) = 90.37 %
+target score = 72.84 %
+accuracy (just for info) = 90.02 %
+[61]	validation_0-merror:0.096364	validation_1-merror:0.09982	validation_0-target_score:-0.751349	validation_1-target_score:-0.728374
+target score = 75.25 %
+accuracy (just for info) = 90.40 %
+target score = 72.88 %
+accuracy (just for info) = 90.01 %
+[62]	validation_0-merror:0.096085	validation_1-merror:0.099876	validation_0-target_score:-0.752518	validation_1-target_score:-0.728823
+target score = 75.25 %
+accuracy (just for info) = 90.41 %
+target score = 72.97 %
+accuracy (just for info) = 90.07 %
+[63]	validation_0-merror:0.096001	validation_1-merror:0.099314	validation_0-target_score:-0.752518	validation_1-target_score:-0.729721
+target score = 75.32 %
+accuracy (just for info) = 90.41 %
+target score = 72.96 %
+accuracy (just for info) = 90.07 %
+[64]	validation_0-merror:0.095917	validation_1-merror:0.099258	validation_0-target_score:-0.753241	validation_1-target_score:-0.729608
+target score = 75.39 %
+accuracy (just for info) = 90.42 %
+target score = 72.93 %
+accuracy (just for info) = 90.06 %
+[65]	validation_0-merror:0.095889	validation_1-merror:0.09937	validation_0-target_score:-0.753909	validation_1-target_score:-0.729272
+target score = 75.47 %
+accuracy (just for info) = 90.43 %
+target score = 72.98 %
+accuracy (just for info) = 90.05 %
+[66]	validation_0-merror:0.095805	validation_1-merror:0.099539	validation_0-target_score:-0.754688	validation_1-target_score:-0.729833
+target score = 75.58 %
+accuracy (just for info) = 90.45 %
+target score = 73.06 %
+accuracy (just for info) = 90.09 %
+[67]	validation_0-merror:0.095609	validation_1-merror:0.099145	validation_0-target_score:-0.7558	validation_1-target_score:-0.730618
+target score = 75.72 %
+accuracy (just for info) = 90.46 %
+target score = 73.01 %
+accuracy (just for info) = 90.08 %
+[68]	validation_0-merror:0.09547	validation_1-merror:0.099201	validation_0-target_score:-0.757247	validation_1-target_score:-0.730057
+target score = 75.79 %
+accuracy (just for info) = 90.47 %
+target score = 73.06 %
+accuracy (just for info) = 90.07 %
+[69]	validation_0-merror:0.09533	validation_1-merror:0.099258	validation_0-target_score:-0.757915	validation_1-target_score:-0.730618
+target score = 75.86 %
+accuracy (just for info) = 90.47 %
+target score = 72.98 %
+accuracy (just for info) = 90.10 %
+[70]	validation_0-merror:0.09533	validation_1-merror:0.098976	validation_0-target_score:-0.758582	validation_1-target_score:-0.729833
+target score = 76.04 %
+accuracy (just for info) = 90.49 %
+target score = 72.83 %
+accuracy (just for info) = 90.12 %
+[71]	validation_0-merror:0.095134	validation_1-merror:0.098808	validation_0-target_score:-0.760363	validation_1-target_score:-0.728262
+target score = 76.15 %
+accuracy (just for info) = 90.51 %
+target score = 72.78 %
+accuracy (just for info) = 90.11 %
+[72]	validation_0-merror:0.094911	validation_1-merror:0.098976	validation_0-target_score:-0.761531	validation_1-target_score:-0.727813
+target score = 76.10 %
+accuracy (just for info) = 90.52 %
+target score = 72.80 %
+accuracy (just for info) = 90.11 %
+[73]	validation_0-merror:0.094827	validation_1-merror:0.09892	validation_0-target_score:-0.76103	validation_1-target_score:-0.728038
+target score = 76.24 %
+accuracy (just for info) = 90.52 %
+target score = 72.73 %
+accuracy (just for info) = 90.10 %
+[74]	validation_0-merror:0.094883	validation_1-merror:0.098976	validation_0-target_score:-0.762366	validation_1-target_score:-0.727252
+target score = 76.32 %
+accuracy (just for info) = 90.56 %
+target score = 72.76 %
+accuracy (just for info) = 90.14 %
+[75]	validation_0-merror:0.094491	validation_1-merror:0.098639	validation_0-target_score:-0.7632	validation_1-target_score:-0.727589
+target score = 76.48 %
+accuracy (just for info) = 90.58 %
+target score = 72.84 %
+accuracy (just for info) = 90.14 %
+[76]	validation_0-merror:0.094296	validation_1-merror:0.098583	validation_0-target_score:-0.764758	validation_1-target_score:-0.728374
+target score = 76.56 %
+accuracy (just for info) = 90.59 %
+target score = 72.84 %
+accuracy (just for info) = 90.12 %
+[77]	validation_0-merror:0.094184	validation_1-merror:0.098808	validation_0-target_score:-0.765648	validation_1-target_score:-0.728374
+target score = 76.54 %
+accuracy (just for info) = 90.59 %
+target score = 72.79 %
+accuracy (just for info) = 90.14 %
+[78]	validation_0-merror:0.0941	validation_1-merror:0.098639	validation_0-target_score:-0.765426	validation_1-target_score:-0.727926
+target score = 76.54 %
+accuracy (just for info) = 90.60 %
+target score = 72.93 %
+accuracy (just for info) = 90.15 %
+[79]	validation_0-merror:0.093988	validation_1-merror:0.098527	validation_0-target_score:-0.76537	validation_1-target_score:-0.729272
+target score = 76.61 %
+accuracy (just for info) = 90.62 %
+target score = 72.92 %
+accuracy (just for info) = 90.16 %
+[80]	validation_0-merror:0.093821	validation_1-merror:0.098358	validation_0-target_score:-0.766149	validation_1-target_score:-0.72916
+target score = 76.76 %
+accuracy (just for info) = 90.62 %
+target score = 72.68 %
+accuracy (just for info) = 90.15 %
+[81]	validation_0-merror:0.093849	validation_1-merror:0.09847	validation_0-target_score:-0.767596	validation_1-target_score:-0.726804
+target score = 76.84 %
+accuracy (just for info) = 90.65 %
+target score = 72.93 %
+accuracy (just for info) = 90.18 %
+[82]	validation_0-merror:0.093541	validation_1-merror:0.098358	validation_0-target_score:-0.768375	validation_1-target_score:-0.729272
+target score = 76.86 %
+accuracy (just for info) = 90.67 %
+target score = 72.93 %
+accuracy (just for info) = 90.17 %
+[83]	validation_0-merror:0.093402	validation_1-merror:0.098302	validation_0-target_score:-0.768597	validation_1-target_score:-0.729272
+target score = 76.92 %
+accuracy (just for info) = 90.70 %
+target score = 72.94 %
+accuracy (just for info) = 90.17 %
+[84]	validation_0-merror:0.093094	validation_1-merror:0.098358	validation_0-target_score:-0.769209	validation_1-target_score:-0.729384
+target score = 77.01 %
+accuracy (just for info) = 90.72 %
+target score = 72.93 %
+accuracy (just for info) = 90.18 %
+[85]	validation_0-merror:0.092843	validation_1-merror:0.098189	validation_0-target_score:-0.7701	validation_1-target_score:-0.729272
+target score = 77.10 %
+accuracy (just for info) = 90.76 %
+target score = 72.61 %
+accuracy (just for info) = 90.17 %
+[86]	validation_0-merror:0.092423	validation_1-merror:0.098302	validation_0-target_score:-0.771045	validation_1-target_score:-0.72613
+target score = 77.18 %
+accuracy (just for info) = 90.76 %
+target score = 72.57 %
+accuracy (just for info) = 90.16 %
+[87]	validation_0-merror:0.092479	validation_1-merror:0.098414	validation_0-target_score:-0.771824	validation_1-target_score:-0.725682
+target score = 77.26 %
+accuracy (just for info) = 90.77 %
+target score = 72.71 %
+accuracy (just for info) = 90.15 %
+[88]	validation_0-merror:0.092451	validation_1-merror:0.098583	validation_0-target_score:-0.772603	validation_1-target_score:-0.72714
+target score = 77.30 %
+accuracy (just for info) = 90.79 %
+target score = 72.70 %
+accuracy (just for info) = 90.17 %
+[89]	validation_0-merror:0.092144	validation_1-merror:0.098583	validation_0-target_score:-0.772993	validation_1-target_score:-0.727028
+target score = 77.42 %
+accuracy (just for info) = 90.83 %
+target score = 72.64 %
+accuracy (just for info) = 90.18 %
+[90]	validation_0-merror:0.091725	validation_1-merror:0.09847	validation_0-target_score:-0.774161	validation_1-target_score:-0.726355
+target score = 77.46 %
+accuracy (just for info) = 90.83 %
+target score = 72.66 %
+accuracy (just for info) = 90.18 %
+[91]	validation_0-merror:0.091753	validation_1-merror:0.09847	validation_0-target_score:-0.774551	validation_1-target_score:-0.726579
+target score = 77.48 %
+accuracy (just for info) = 90.84 %
+target score = 72.62 %
+accuracy (just for info) = 90.17 %
+[92]	validation_0-merror:0.091585	validation_1-merror:0.09847	validation_0-target_score:-0.774829	validation_1-target_score:-0.726243
+target score = 77.54 %
+accuracy (just for info) = 90.85 %
+target score = 72.96 %
+accuracy (just for info) = 90.16 %
+[93]	validation_0-merror:0.091585	validation_1-merror:0.098414	validation_0-target_score:-0.775385	validation_1-target_score:-0.729608
+target score = 77.47 %
+accuracy (just for info) = 90.85 %
+target score = 73.03 %
+accuracy (just for info) = 90.18 %
+[94]	validation_0-merror:0.091557	validation_1-merror:0.098189	validation_0-target_score:-0.774662	validation_1-target_score:-0.730282
+target score = 77.58 %
+accuracy (just for info) = 90.86 %
+target score = 73.04 %
+accuracy (just for info) = 90.19 %
+[95]	validation_0-merror:0.091417	validation_1-merror:0.098077	validation_0-target_score:-0.77583	validation_1-target_score:-0.730394
+target score = 77.60 %
+accuracy (just for info) = 90.87 %
+target score = 73.20 %
+accuracy (just for info) = 90.18 %
+[96]	validation_0-merror:0.091333	validation_1-merror:0.098583	validation_0-target_score:-0.775997	validation_1-target_score:-0.731965
+target score = 77.76 %
+accuracy (just for info) = 90.88 %
+target score = 73.27 %
+accuracy (just for info) = 90.19 %
+[97]	validation_0-merror:0.091305	validation_1-merror:0.098527	validation_0-target_score:-0.777611	validation_1-target_score:-0.73275
+target score = 77.77 %
+accuracy (just for info) = 90.90 %
+target score = 73.24 %
+accuracy (just for info) = 90.20 %
+[98]	validation_0-merror:0.091026	validation_1-merror:0.098527	validation_0-target_score:-0.777666	validation_1-target_score:-0.732413
+target score = 77.85 %
+accuracy (just for info) = 90.91 %
+target score = 73.25 %
+accuracy (just for info) = 90.20 %
+[99]	validation_0-merror:0.09097	validation_1-merror:0.09847	validation_0-target_score:-0.778501	validation_1-target_score:-0.732526
+target score = 77.92 %
+accuracy (just for info) = 90.93 %
+target score = 73.23 %
+accuracy (just for info) = 90.21 %
+[100]	validation_0-merror:0.090858	validation_1-merror:0.09847	validation_0-target_score:-0.779224	validation_1-target_score:-0.732301
+target score = 78.02 %
+accuracy (just for info) = 90.94 %
+target score = 73.24 %
+accuracy (just for info) = 90.23 %
+[101]	validation_0-merror:0.090691	validation_1-merror:0.098527	validation_0-target_score:-0.780226	validation_1-target_score:-0.732413
+target score = 78.06 %
+accuracy (just for info) = 90.95 %
+target score = 73.22 %
+accuracy (just for info) = 90.23 %
+[102]	validation_0-merror:0.090579	validation_1-merror:0.098414	validation_0-target_score:-0.780615	validation_1-target_score:-0.732189
+target score = 78.19 %
+accuracy (just for info) = 90.98 %
+target score = 73.34 %
+accuracy (just for info) = 90.20 %
+[103]	validation_0-merror:0.090243	validation_1-merror:0.098414	validation_0-target_score:-0.781895	validation_1-target_score:-0.733423
+target score = 78.32 %
+accuracy (just for info) = 91.01 %
+target score = 73.31 %
+accuracy (just for info) = 90.20 %
+[104]	validation_0-merror:0.09002	validation_1-merror:0.098302	validation_0-target_score:-0.78323	validation_1-target_score:-0.733087
+target score = 78.40 %
+accuracy (just for info) = 91.04 %
+target score = 73.29 %
+accuracy (just for info) = 90.19 %
+[105]	validation_0-merror:0.089712	validation_1-merror:0.098189	validation_0-target_score:-0.784009	validation_1-target_score:-0.732862
+target score = 78.39 %
+accuracy (just for info) = 91.05 %
+target score = 73.32 %
+accuracy (just for info) = 90.19 %
+[106]	validation_0-merror:0.089629	validation_1-merror:0.098133	validation_0-target_score:-0.783898	validation_1-target_score:-0.733199
+target score = 78.46 %
+accuracy (just for info) = 91.04 %
+target score = 73.27 %
+accuracy (just for info) = 90.21 %
+[107]	validation_0-merror:0.089768	validation_1-merror:0.097908	validation_0-target_score:-0.784566	validation_1-target_score:-0.73275
+target score = 78.57 %
+accuracy (just for info) = 91.04 %
+target score = 73.12 %
+accuracy (just for info) = 90.21 %
+[108]	validation_0-merror:0.089768	validation_1-merror:0.097908	validation_0-target_score:-0.785734	validation_1-target_score:-0.731179
+target score = 78.56 %
+accuracy (just for info) = 91.05 %
+target score = 73.34 %
+accuracy (just for info) = 90.23 %
+[109]	validation_0-merror:0.089657	validation_1-merror:0.097739	validation_0-target_score:-0.785567	validation_1-target_score:-0.733423
+target score = 78.62 %
+accuracy (just for info) = 91.08 %
+target score = 73.39 %
+accuracy (just for info) = 90.21 %
+[110]	validation_0-merror:0.089293	validation_1-merror:0.097852	validation_0-target_score:-0.786235	validation_1-target_score:-0.733872
+target score = 78.65 %
+accuracy (just for info) = 91.10 %
+target score = 73.39 %
+accuracy (just for info) = 90.22 %
+[111]	validation_0-merror:0.089153	validation_1-merror:0.097796	validation_0-target_score:-0.786457	validation_1-target_score:-0.733872
+target score = 78.67 %
+accuracy (just for info) = 91.13 %
+target score = 73.33 %
+accuracy (just for info) = 90.22 %
+[112]	validation_0-merror:0.088874	validation_1-merror:0.097908	validation_0-target_score:-0.78668	validation_1-target_score:-0.733311
+target score = 78.68 %
+accuracy (just for info) = 91.13 %
+target score = 73.26 %
+accuracy (just for info) = 90.24 %
+[113]	validation_0-merror:0.088818	validation_1-merror:0.09802	validation_0-target_score:-0.786791	validation_1-target_score:-0.732638
+target score = 78.89 %
+accuracy (just for info) = 91.16 %
+target score = 73.29 %
+accuracy (just for info) = 90.24 %
+[114]	validation_0-merror:0.088539	validation_1-merror:0.097852	validation_0-target_score:-0.788906	validation_1-target_score:-0.732862
+target score = 79.07 %
+accuracy (just for info) = 91.17 %
+target score = 73.24 %
+accuracy (just for info) = 90.24 %
+[115]	validation_0-merror:0.088399	validation_1-merror:0.097908	validation_0-target_score:-0.790686	validation_1-target_score:-0.732413
+target score = 79.08 %
+accuracy (just for info) = 91.19 %
+target score = 73.38 %
+accuracy (just for info) = 90.23 %
+[116]	validation_0-merror:0.088231	validation_1-merror:0.097964	validation_0-target_score:-0.790797	validation_1-target_score:-0.73376
+target score = 79.05 %
+accuracy (just for info) = 91.21 %
+target score = 73.38 %
+accuracy (just for info) = 90.23 %
+[117]	validation_0-merror:0.088064	validation_1-merror:0.097908	validation_0-target_score:-0.790463	validation_1-target_score:-0.73376
+target score = 79.13 %
+accuracy (just for info) = 91.21 %
+target score = 73.43 %
+accuracy (just for info) = 90.24 %
+[118]	validation_0-merror:0.088064	validation_1-merror:0.09802	validation_0-target_score:-0.791298	validation_1-target_score:-0.734321
+target score = 79.15 %
+accuracy (just for info) = 91.21 %
+target score = 73.38 %
+accuracy (just for info) = 90.25 %
+[119]	validation_0-merror:0.088008	validation_1-merror:0.097683	validation_0-target_score:-0.791465	validation_1-target_score:-0.73376
+target score = 79.28 %
+accuracy (just for info) = 91.22 %
+target score = 73.54 %
+accuracy (just for info) = 90.27 %
+[120]	validation_0-merror:0.087924	validation_1-merror:0.097852	validation_0-target_score:-0.7928	validation_1-target_score:-0.735443
+target score = 79.34 %
+accuracy (just for info) = 91.28 %
+target score = 73.36 %
+accuracy (just for info) = 90.28 %
+[121]	validation_0-merror:0.087337	validation_1-merror:0.097458	validation_0-target_score:-0.793412	validation_1-target_score:-0.733647
+target score = 79.42 %
+accuracy (just for info) = 91.31 %
+target score = 73.34 %
+accuracy (just for info) = 90.28 %
+[122]	validation_0-merror:0.087029	validation_1-merror:0.097571	validation_0-target_score:-0.794191	validation_1-target_score:-0.733423
+target score = 79.45 %
+accuracy (just for info) = 91.31 %
+target score = 73.41 %
+accuracy (just for info) = 90.28 %
+[123]	validation_0-merror:0.086974	validation_1-merror:0.097739	validation_0-target_score:-0.794469	validation_1-target_score:-0.734096
+target score = 79.60 %
+accuracy (just for info) = 91.36 %
+target score = 73.49 %
+accuracy (just for info) = 90.30 %
+[124]	validation_0-merror:0.086554	validation_1-merror:0.097064	validation_0-target_score:-0.795972	validation_1-target_score:-0.734882
+target score = 79.69 %
+accuracy (just for info) = 91.38 %
+target score = 73.35 %
+accuracy (just for info) = 90.28 %
+[125]	validation_0-merror:0.086303	validation_1-merror:0.097514	validation_0-target_score:-0.796918	validation_1-target_score:-0.733535
+target score = 79.64 %
+accuracy (just for info) = 91.38 %
+target score = 73.41 %
+accuracy (just for info) = 90.29 %
+[126]	validation_0-merror:0.086331	validation_1-merror:0.097458	validation_0-target_score:-0.796417	validation_1-target_score:-0.734096
+target score = 79.71 %
+accuracy (just for info) = 91.40 %
+target score = 73.47 %
+accuracy (just for info) = 90.29 %
+[127]	validation_0-merror:0.086107	validation_1-merror:0.097346	validation_0-target_score:-0.79714	validation_1-target_score:-0.734657
+target score = 79.81 %
+accuracy (just for info) = 91.41 %
+target score = 73.26 %
+accuracy (just for info) = 90.30 %
+[128]	validation_0-merror:0.085995	validation_1-merror:0.097402	validation_0-target_score:-0.798086	validation_1-target_score:-0.732638
+target score = 79.85 %
+accuracy (just for info) = 91.45 %
+target score = 73.27 %
+accuracy (just for info) = 90.32 %
+[129]	validation_0-merror:0.085632	validation_1-merror:0.097402	validation_0-target_score:-0.798475	validation_1-target_score:-0.73275
+target score = 79.85 %
+accuracy (just for info) = 91.44 %
+target score = 73.26 %
+accuracy (just for info) = 90.30 %
+[130]	validation_0-merror:0.085716	validation_1-merror:0.097346	validation_0-target_score:-0.798531	validation_1-target_score:-0.732638
+target score = 79.93 %
+accuracy (just for info) = 91.47 %
+target score = 73.36 %
+accuracy (just for info) = 90.31 %
+[131]	validation_0-merror:0.085464	validation_1-merror:0.097064	validation_0-target_score:-0.79931	validation_1-target_score:-0.733647
+target score = 80.07 %
+accuracy (just for info) = 91.48 %
+target score = 73.43 %
+accuracy (just for info) = 90.34 %
+[132]	validation_0-merror:0.085325	validation_1-merror:0.096783	validation_0-target_score:-0.800701	validation_1-target_score:-0.734321
+target score = 80.06 %
+accuracy (just for info) = 91.50 %
+target score = 73.44 %
+accuracy (just for info) = 90.34 %
+[133]	validation_0-merror:0.085101	validation_1-merror:0.096896	validation_0-target_score:-0.800645	validation_1-target_score:-0.734433
+target score = 80.10 %
+accuracy (just for info) = 91.51 %
+target score = 73.48 %
+accuracy (just for info) = 90.34 %
+[134]	validation_0-merror:0.085073	validation_1-merror:0.09684	validation_0-target_score:-0.801035	validation_1-target_score:-0.734769
+target score = 80.07 %
+accuracy (just for info) = 91.52 %
+target score = 73.50 %
+accuracy (just for info) = 90.36 %
+[135]	validation_0-merror:0.084961	validation_1-merror:0.096727	validation_0-target_score:-0.800701	validation_1-target_score:-0.734994
+target score = 80.19 %
+accuracy (just for info) = 91.52 %
+target score = 73.48 %
+accuracy (just for info) = 90.37 %
+[136]	validation_0-merror:0.084905	validation_1-merror:0.096502	validation_0-target_score:-0.801925	validation_1-target_score:-0.734769
+target score = 80.21 %
+accuracy (just for info) = 91.51 %
+target score = 73.45 %
+accuracy (just for info) = 90.38 %
+[137]	validation_0-merror:0.085017	validation_1-merror:0.09639	validation_0-target_score:-0.802092	validation_1-target_score:-0.734545
+target score = 80.23 %
+accuracy (just for info) = 91.54 %
+target score = 73.52 %
+accuracy (just for info) = 90.35 %
+[138]	validation_0-merror:0.084766	validation_1-merror:0.096615	validation_0-target_score:-0.802315	validation_1-target_score:-0.735218
+target score = 80.35 %
+accuracy (just for info) = 91.55 %
+target score = 73.59 %
+accuracy (just for info) = 90.37 %
+[139]	validation_0-merror:0.084626	validation_1-merror:0.09639	validation_0-target_score:-0.803483	validation_1-target_score:-0.735891
+target score = 80.35 %
+accuracy (just for info) = 91.57 %
+target score = 73.56 %
+accuracy (just for info) = 90.39 %
+[140]	validation_0-merror:0.08443	validation_1-merror:0.096108	validation_0-target_score:-0.803483	validation_1-target_score:-0.735555
+target score = 80.36 %
+accuracy (just for info) = 91.60 %
+target score = 73.56 %
+accuracy (just for info) = 90.39 %
+[141]	validation_0-merror:0.084123	validation_1-merror:0.096165	validation_0-target_score:-0.803594	validation_1-target_score:-0.735555
+target score = 80.46 %
+accuracy (just for info) = 91.61 %
+target score = 73.45 %
+accuracy (just for info) = 90.39 %
+[142]	validation_0-merror:0.084039	validation_1-merror:0.096165	validation_0-target_score:-0.804596	validation_1-target_score:-0.734545
+target score = 80.47 %
+accuracy (just for info) = 91.61 %
+target score = 73.47 %
+accuracy (just for info) = 90.41 %
+[143]	validation_0-merror:0.084039	validation_1-merror:0.095996	validation_0-target_score:-0.804651	validation_1-target_score:-0.734657
+target score = 80.52 %
+accuracy (just for info) = 91.62 %
+target score = 73.50 %
+accuracy (just for info) = 90.36 %
+[144]	validation_0-merror:0.083899	validation_1-merror:0.096446	validation_0-target_score:-0.805152	validation_1-target_score:-0.734994
+target score = 80.48 %
+accuracy (just for info) = 91.64 %
+target score = 73.60 %
+accuracy (just for info) = 90.37 %
+[145]	validation_0-merror:0.083704	validation_1-merror:0.096446	validation_0-target_score:-0.804818	validation_1-target_score:-0.736004
+target score = 80.53 %
+accuracy (just for info) = 91.66 %
+target score = 73.62 %
+accuracy (just for info) = 90.35 %
+[146]	validation_0-merror:0.083508	validation_1-merror:0.096727	validation_0-target_score:-0.805319	validation_1-target_score:-0.736228
+target score = 80.56 %
+accuracy (just for info) = 91.67 %
+target score = 73.63 %
+accuracy (just for info) = 90.35 %
+[147]	validation_0-merror:0.083312	validation_1-merror:0.096783	validation_0-target_score:-0.805597	validation_1-target_score:-0.73634
+target score = 80.59 %
+accuracy (just for info) = 91.68 %
+target score = 73.56 %
+accuracy (just for info) = 90.37 %
+[148]	validation_0-merror:0.083312	validation_1-merror:0.096502	validation_0-target_score:-0.805875	validation_1-target_score:-0.735555
+target score = 80.65 %
+accuracy (just for info) = 91.69 %
+target score = 73.57 %
+accuracy (just for info) = 90.36 %
+[149]	validation_0-merror:0.083229	validation_1-merror:0.096502	validation_0-target_score:-0.806488	validation_1-target_score:-0.735667
+target score = 80.75 %
+accuracy (just for info) = 91.69 %
+target score = 73.57 %
+accuracy (just for info) = 90.38 %
+[150]	validation_0-merror:0.083229	validation_1-merror:0.096221	validation_0-target_score:-0.807545	validation_1-target_score:-0.735667
+target score = 80.78 %
+accuracy (just for info) = 91.71 %
+target score = 73.58 %
+accuracy (just for info) = 90.39 %
+[151]	validation_0-merror:0.083005	validation_1-merror:0.096108	validation_0-target_score:-0.807823	validation_1-target_score:-0.735779
+target score = 80.82 %
+accuracy (just for info) = 91.72 %
+target score = 73.57 %
+accuracy (just for info) = 90.37 %
+[152]	validation_0-merror:0.082893	validation_1-merror:0.096277	validation_0-target_score:-0.808157	validation_1-target_score:-0.735667
+target score = 80.80 %
+accuracy (just for info) = 91.71 %
+target score = 73.57 %
+accuracy (just for info) = 90.40 %
+[153]	validation_0-merror:0.083005	validation_1-merror:0.095996	validation_0-target_score:-0.80799	validation_1-target_score:-0.735667
+target score = 80.97 %
+accuracy (just for info) = 91.73 %
+target score = 73.53 %
+accuracy (just for info) = 90.40 %
+[154]	validation_0-merror:0.082781	validation_1-merror:0.095996	validation_0-target_score:-0.809715	validation_1-target_score:-0.73533
+target score = 80.97 %
+accuracy (just for info) = 91.74 %
+target score = 73.51 %
+accuracy (just for info) = 90.40 %
+[155]	validation_0-merror:0.08267	validation_1-merror:0.095996	validation_0-target_score:-0.809659	validation_1-target_score:-0.735106
+target score = 80.98 %
+accuracy (just for info) = 91.75 %
+target score = 73.56 %
+accuracy (just for info) = 90.41 %
+[156]	validation_0-merror:0.08253	validation_1-merror:0.095883	validation_0-target_score:-0.80977	validation_1-target_score:-0.735555
+target score = 81.05 %
+accuracy (just for info) = 91.76 %
+target score = 73.56 %
+accuracy (just for info) = 90.41 %
+[157]	validation_0-merror:0.082418	validation_1-merror:0.09594	validation_0-target_score:-0.810549	validation_1-target_score:-0.735555
+target score = 81.10 %
+accuracy (just for info) = 91.79 %
+target score = 73.59 %
+accuracy (just for info) = 90.41 %
+[158]	validation_0-merror:0.082222	validation_1-merror:0.09594	validation_0-target_score:-0.81105	validation_1-target_score:-0.735891
+target score = 81.21 %
+accuracy (just for info) = 91.81 %
+target score = 73.67 %
+accuracy (just for info) = 90.42 %
+[159]	validation_0-merror:0.081971	validation_1-merror:0.095827	validation_0-target_score:-0.812051	validation_1-target_score:-0.736677
+target score = 81.27 %
+accuracy (just for info) = 91.85 %
+target score = 73.62 %
+accuracy (just for info) = 90.42 %
+[160]	validation_0-merror:0.08158	validation_1-merror:0.095883	validation_0-target_score:-0.812663	validation_1-target_score:-0.736228
+target score = 81.30 %
+accuracy (just for info) = 91.86 %
+target score = 73.58 %
+accuracy (just for info) = 90.42 %
+[161]	validation_0-merror:0.081496	validation_1-merror:0.095827	validation_0-target_score:-0.812997	validation_1-target_score:-0.735779
+target score = 81.37 %
+accuracy (just for info) = 91.87 %
+target score = 73.38 %
+accuracy (just for info) = 90.42 %
+[162]	validation_0-merror:0.081356	validation_1-merror:0.095771	validation_0-target_score:-0.813721	validation_1-target_score:-0.73376
+target score = 81.46 %
+accuracy (just for info) = 91.88 %
+target score = 73.35 %
+accuracy (just for info) = 90.42 %
+[163]	validation_0-merror:0.0813	validation_1-merror:0.095771	validation_0-target_score:-0.814555	validation_1-target_score:-0.733535
+target score = 81.45 %
+accuracy (just for info) = 91.90 %
+target score = 73.58 %
+accuracy (just for info) = 90.39 %
+[164]	validation_0-merror:0.081049	validation_1-merror:0.096052	validation_0-target_score:-0.8145	validation_1-target_score:-0.735779
+target score = 81.49 %
+accuracy (just for info) = 91.92 %
+target score = 73.30 %
+accuracy (just for info) = 90.41 %
+[165]	validation_0-merror:0.080909	validation_1-merror:0.09594	validation_0-target_score:-0.814889	validation_1-target_score:-0.732974
+target score = 81.58 %
+accuracy (just for info) = 91.94 %
+target score = 73.49 %
+accuracy (just for info) = 90.42 %
+[166]	validation_0-merror:0.080657	validation_1-merror:0.095827	validation_0-target_score:-0.815779	validation_1-target_score:-0.734882
+target score = 81.64 %
+accuracy (just for info) = 91.98 %
+target score = 73.49 %
+accuracy (just for info) = 90.40 %
+[167]	validation_0-merror:0.080322	validation_1-merror:0.095996	validation_0-target_score:-0.816391	validation_1-target_score:-0.734882
+target score = 81.70 %
+accuracy (just for info) = 92.00 %
+target score = 73.41 %
+accuracy (just for info) = 90.40 %
+[168]	validation_0-merror:0.080154	validation_1-merror:0.095996	validation_0-target_score:-0.817003	validation_1-target_score:-0.734096
+target score = 81.79 %
+accuracy (just for info) = 92.00 %
+target score = 73.39 %
+accuracy (just for info) = 90.41 %
+[169]	validation_0-merror:0.08007	validation_1-merror:0.09594	validation_0-target_score:-0.817949	validation_1-target_score:-0.733872
+target score = 81.83 %
+accuracy (just for info) = 92.02 %
+target score = 73.45 %
+accuracy (just for info) = 90.45 %
+[170]	validation_0-merror:0.079931	validation_1-merror:0.09549	validation_0-target_score:-0.818339	validation_1-target_score:-0.734545
+target score = 81.88 %
+accuracy (just for info) = 92.01 %
+target score = 73.58 %
+accuracy (just for info) = 90.41 %
+[171]	validation_0-merror:0.079959	validation_1-merror:0.095996	validation_0-target_score:-0.818784	validation_1-target_score:-0.735779
+target score = 81.92 %
+accuracy (just for info) = 92.03 %
+target score = 73.60 %
+accuracy (just for info) = 90.43 %
+[172]	validation_0-merror:0.079847	validation_1-merror:0.095715	validation_0-target_score:-0.819229	validation_1-target_score:-0.736004
+target score = 82.03 %
+accuracy (just for info) = 92.03 %
+target score = 73.61 %
+accuracy (just for info) = 90.42 %
+[173]	validation_0-merror:0.079819	validation_1-merror:0.095827	validation_0-target_score:-0.820286	validation_1-target_score:-0.736116
+target score = 82.03 %
+accuracy (just for info) = 92.03 %
+target score = 73.59 %
+accuracy (just for info) = 90.42 %
+[174]	validation_0-merror:0.079735	validation_1-merror:0.09594	validation_0-target_score:-0.820286	validation_1-target_score:-0.735891
+target score = 82.10 %
+accuracy (just for info) = 92.06 %
+target score = 73.67 %
+accuracy (just for info) = 90.41 %
+[175]	validation_0-merror:0.079456	validation_1-merror:0.095996	validation_0-target_score:-0.820954	validation_1-target_score:-0.736677
+target score = 82.14 %
+accuracy (just for info) = 92.08 %
+target score = 73.70 %
+accuracy (just for info) = 90.42 %
+[176]	validation_0-merror:0.079232	validation_1-merror:0.096052	validation_0-target_score:-0.821399	validation_1-target_score:-0.737013
+target score = 82.16 %
+accuracy (just for info) = 92.10 %
+target score = 73.73 %
+accuracy (just for info) = 90.41 %
+[177]	validation_0-merror:0.079064	validation_1-merror:0.096108	validation_0-target_score:-0.821566	validation_1-target_score:-0.73735
+target score = 82.18 %
+accuracy (just for info) = 92.11 %
+target score = 73.78 %
+accuracy (just for info) = 90.43 %
+[178]	validation_0-merror:0.078925	validation_1-merror:0.095771	validation_0-target_score:-0.821844	validation_1-target_score:-0.737799
+target score = 82.28 %
+accuracy (just for info) = 92.12 %
+target score = 73.79 %
+accuracy (just for info) = 90.42 %
+[179]	validation_0-merror:0.078869	validation_1-merror:0.095883	validation_0-target_score:-0.82279	validation_1-target_score:-0.737911
+target score = 82.28 %
+accuracy (just for info) = 92.14 %
+target score = 73.80 %
+accuracy (just for info) = 90.42 %
+[180]	validation_0-merror:0.078673	validation_1-merror:0.095883	validation_0-target_score:-0.82279	validation_1-target_score:-0.738023
+target score = 82.33 %
+accuracy (just for info) = 92.16 %
+target score = 73.77 %
+accuracy (just for info) = 90.41 %
+[181]	validation_0-merror:0.078505	validation_1-merror:0.095996	validation_0-target_score:-0.823346	validation_1-target_score:-0.737687
+target score = 82.38 %
+accuracy (just for info) = 92.16 %
+target score = 73.82 %
+accuracy (just for info) = 90.42 %
+[182]	validation_0-merror:0.078477	validation_1-merror:0.095883	validation_0-target_score:-0.823847	validation_1-target_score:-0.738248
+target score = 82.47 %
+accuracy (just for info) = 92.17 %
+target score = 73.72 %
+accuracy (just for info) = 90.42 %
+[183]	validation_0-merror:0.078394	validation_1-merror:0.095827	validation_0-target_score:-0.824681	validation_1-target_score:-0.737238
+target score = 82.50 %
+accuracy (just for info) = 92.18 %
+target score = 73.72 %
+accuracy (just for info) = 90.41 %
+[184]	validation_0-merror:0.07831	validation_1-merror:0.095996	validation_0-target_score:-0.82496	validation_1-target_score:-0.737238
+target score = 82.52 %
+accuracy (just for info) = 92.19 %
+target score = 73.72 %
+accuracy (just for info) = 90.41 %
+[185]	validation_0-merror:0.07817	validation_1-merror:0.095996	validation_0-target_score:-0.825182	validation_1-target_score:-0.737238
+target score = 82.59 %
+accuracy (just for info) = 92.23 %
+target score = 73.66 %
+accuracy (just for info) = 90.41 %
+[186]	validation_0-merror:0.077779	validation_1-merror:0.09594	validation_0-target_score:-0.825906	validation_1-target_score:-0.736565
+target score = 82.72 %
+accuracy (just for info) = 92.26 %
+target score = 73.70 %
+accuracy (just for info) = 90.42 %
+[187]	validation_0-merror:0.077527	validation_1-merror:0.095883	validation_0-target_score:-0.827185	validation_1-target_score:-0.737013
+target score = 82.79 %
+accuracy (just for info) = 92.28 %
+target score = 73.76 %
+accuracy (just for info) = 90.42 %
+[188]	validation_0-merror:0.077332	validation_1-merror:0.095883	validation_0-target_score:-0.827909	validation_1-target_score:-0.737574
+target score = 82.82 %
+accuracy (just for info) = 92.29 %
+target score = 73.72 %
+accuracy (just for info) = 90.42 %
+[189]	validation_0-merror:0.07722	validation_1-merror:0.09594	validation_0-target_score:-0.828242	validation_1-target_score:-0.737238
+target score = 82.81 %
+accuracy (just for info) = 92.30 %
+target score = 73.69 %
+accuracy (just for info) = 90.43 %
+[190]	validation_0-merror:0.077052	validation_1-merror:0.095883	validation_0-target_score:-0.828131	validation_1-target_score:-0.736901
+target score = 82.90 %
+accuracy (just for info) = 92.32 %
+target score = 73.76 %
+accuracy (just for info) = 90.45 %
+[191]	validation_0-merror:0.076884	validation_1-merror:0.095715	validation_0-target_score:-0.829021	validation_1-target_score:-0.737574
+target score = 82.97 %
+accuracy (just for info) = 92.35 %
+target score = 73.70 %
+accuracy (just for info) = 90.44 %
+[192]	validation_0-merror:0.076577	validation_1-merror:0.095715	validation_0-target_score:-0.829745	validation_1-target_score:-0.737013
+target score = 83.07 %
+accuracy (just for info) = 92.35 %
+target score = 73.57 %
+accuracy (just for info) = 90.43 %
+[193]	validation_0-merror:0.076689	validation_1-merror:0.095883	validation_0-target_score:-0.83069	validation_1-target_score:-0.735667
+target score = 83.07 %
+accuracy (just for info) = 92.36 %
+target score = 73.68 %
+accuracy (just for info) = 90.46 %
+[194]	validation_0-merror:0.076549	validation_1-merror:0.09549	validation_0-target_score:-0.83069	validation_1-target_score:-0.736789
+target score = 83.14 %
+accuracy (just for info) = 92.38 %
+target score = 73.60 %
+accuracy (just for info) = 90.46 %
+[195]	validation_0-merror:0.076353	validation_1-merror:0.095602	validation_0-target_score:-0.831358	validation_1-target_score:-0.736004
+target score = 83.17 %
+accuracy (just for info) = 92.38 %
+target score = 73.70 %
+accuracy (just for info) = 90.45 %
+[196]	validation_0-merror:0.076381	validation_1-merror:0.095771	validation_0-target_score:-0.831748	validation_1-target_score:-0.737013
+target score = 83.22 %
+accuracy (just for info) = 92.38 %
+target score = 73.72 %
+accuracy (just for info) = 90.45 %
+[197]	validation_0-merror:0.076353	validation_1-merror:0.095771	validation_0-target_score:-0.832193	validation_1-target_score:-0.737238
+target score = 83.30 %
+accuracy (just for info) = 92.39 %
+target score = 73.73 %
+accuracy (just for info) = 90.45 %
+[198]	validation_0-merror:0.076325	validation_1-merror:0.095715	validation_0-target_score:-0.833027	validation_1-target_score:-0.73735
+target score = 83.40 %
+accuracy (just for info) = 92.42 %
+target score = 73.78 %
+accuracy (just for info) = 90.45 %
+[199]	validation_0-merror:0.075934	validation_1-merror:0.095827	validation_0-target_score:-0.833973	validation_1-target_score:-0.737799
+target score = 83.41 %
+accuracy (just for info) = 92.43 %
+target score = 73.78 %
+accuracy (just for info) = 90.46 %
+[200]	validation_0-merror:0.07585	validation_1-merror:0.095602	validation_0-target_score:-0.83414	validation_1-target_score:-0.737799
+target score = 83.43 %
+accuracy (just for info) = 92.46 %
+target score = 73.82 %
+accuracy (just for info) = 90.48 %
+[201]	validation_0-merror:0.075655	validation_1-merror:0.095434	validation_0-target_score:-0.834307	validation_1-target_score:-0.738248
+target score = 83.52 %
+accuracy (just for info) = 92.46 %
+target score = 73.70 %
+accuracy (just for info) = 90.46 %
+[202]	validation_0-merror:0.075571	validation_1-merror:0.095602	validation_0-target_score:-0.835197	validation_1-target_score:-0.737013
+target score = 83.58 %
+accuracy (just for info) = 92.48 %
+target score = 73.68 %
+accuracy (just for info) = 90.46 %
+[203]	validation_0-merror:0.075403	validation_1-merror:0.095546	validation_0-target_score:-0.835754	validation_1-target_score:-0.736789
+target score = 83.59 %
+accuracy (just for info) = 92.48 %
+target score = 73.76 %
+accuracy (just for info) = 90.45 %
+[204]	validation_0-merror:0.075403	validation_1-merror:0.095659	validation_0-target_score:-0.835921	validation_1-target_score:-0.737574
+target score = 83.66 %
+accuracy (just for info) = 92.50 %
+target score = 73.66 %
+accuracy (just for info) = 90.47 %
+[205]	validation_0-merror:0.07518	validation_1-merror:0.095546	validation_0-target_score:-0.836588	validation_1-target_score:-0.736565
+target score = 83.67 %
+accuracy (just for info) = 92.53 %
+target score = 73.73 %
+accuracy (just for info) = 90.45 %
+[206]	validation_0-merror:0.074928	validation_1-merror:0.095659	validation_0-target_score:-0.836699	validation_1-target_score:-0.73735
+target score = 83.75 %
+accuracy (just for info) = 92.55 %
+target score = 73.70 %
+accuracy (just for info) = 90.47 %
+[207]	validation_0-merror:0.074704	validation_1-merror:0.095546	validation_0-target_score:-0.837478	validation_1-target_score:-0.737013
+target score = 83.76 %
+accuracy (just for info) = 92.55 %
+target score = 73.76 %
+accuracy (just for info) = 90.45 %
+[208]	validation_0-merror:0.074677	validation_1-merror:0.095602	validation_0-target_score:-0.83759	validation_1-target_score:-0.737574
+target score = 83.80 %
+accuracy (just for info) = 92.59 %
+target score = 73.85 %
+accuracy (just for info) = 90.46 %
+[209]	validation_0-merror:0.074341	validation_1-merror:0.09549	validation_0-target_score:-0.838035	validation_1-target_score:-0.738472
+target score = 83.85 %
+accuracy (just for info) = 92.60 %
+target score = 73.89 %
+accuracy (just for info) = 90.45 %
+[210]	validation_0-merror:0.074145	validation_1-merror:0.095659	validation_0-target_score:-0.83848	validation_1-target_score:-0.738921
+target score = 83.89 %
+accuracy (just for info) = 92.62 %
+target score = 73.89 %
+accuracy (just for info) = 90.42 %
+[211]	validation_0-merror:0.07395	validation_1-merror:0.096108	validation_0-target_score:-0.838869	validation_1-target_score:-0.738921
+target score = 84.01 %
+accuracy (just for info) = 92.64 %
+target score = 73.87 %
+accuracy (just for info) = 90.41 %
+[212]	validation_0-merror:0.073754	validation_1-merror:0.096333	validation_0-target_score:-0.840149	validation_1-target_score:-0.738696
+target score = 84.11 %
+accuracy (just for info) = 92.65 %
+target score = 73.78 %
+accuracy (just for info) = 90.39 %
+[213]	validation_0-merror:0.073698	validation_1-merror:0.096221	validation_0-target_score:-0.841095	validation_1-target_score:-0.737799
+target score = 84.09 %
+accuracy (just for info) = 92.65 %
+target score = 73.79 %
+accuracy (just for info) = 90.42 %
+[214]	validation_0-merror:0.073698	validation_1-merror:0.09594	validation_0-target_score:-0.840872	validation_1-target_score:-0.737911
+target score = 84.13 %
+accuracy (just for info) = 92.67 %
+target score = 73.79 %
+accuracy (just for info) = 90.41 %
+[215]	validation_0-merror:0.073475	validation_1-merror:0.096165	validation_0-target_score:-0.841262	validation_1-target_score:-0.737911
+target score = 84.10 %
+accuracy (just for info) = 92.67 %
+target score = 73.72 %
+accuracy (just for info) = 90.42 %
+[216]	validation_0-merror:0.073419	validation_1-merror:0.095996	validation_0-target_score:-0.840984	validation_1-target_score:-0.737238
+target score = 84.17 %
+accuracy (just for info) = 92.67 %
+target score = 73.84 %
+accuracy (just for info) = 90.41 %
+[217]	validation_0-merror:0.073475	validation_1-merror:0.096052	validation_0-target_score:-0.841651	validation_1-target_score:-0.73836
+target score = 84.23 %
+accuracy (just for info) = 92.68 %
+target score = 73.70 %
+accuracy (just for info) = 90.41 %
+[218]	validation_0-merror:0.073391	validation_1-merror:0.096108	validation_0-target_score:-0.842319	validation_1-target_score:-0.737013
+target score = 84.27 %
+accuracy (just for info) = 92.67 %
+target score = 73.51 %
+accuracy (just for info) = 90.42 %
+[219]	validation_0-merror:0.073475	validation_1-merror:0.096052	validation_0-target_score:-0.842653	validation_1-target_score:-0.735106
+target score = 84.31 %
+accuracy (just for info) = 92.69 %
+target score = 73.63 %
+accuracy (just for info) = 90.38 %
+[220]	validation_0-merror:0.073195	validation_1-merror:0.096277	validation_0-target_score:-0.843098	validation_1-target_score:-0.73634
+target score = 84.28 %
+accuracy (just for info) = 92.70 %
+target score = 73.62 %
+accuracy (just for info) = 90.39 %
+[221]	validation_0-merror:0.073111	validation_1-merror:0.096221	validation_0-target_score:-0.842764	validation_1-target_score:-0.736228
+target score = 84.30 %
+accuracy (just for info) = 92.71 %
+target score = 73.68 %
+accuracy (just for info) = 90.39 %
+[222]	validation_0-merror:0.073028	validation_1-merror:0.096333	validation_0-target_score:-0.843042	validation_1-target_score:-0.736789
+target score = 84.36 %
+accuracy (just for info) = 92.71 %
+target score = 73.59 %
+accuracy (just for info) = 90.39 %
+[223]	validation_0-merror:0.073	validation_1-merror:0.096558	validation_0-target_score:-0.843599	validation_1-target_score:-0.735891
+target score = 84.38 %
+accuracy (just for info) = 92.72 %
+target score = 73.60 %
+accuracy (just for info) = 90.39 %
+[224]	validation_0-merror:0.072916	validation_1-merror:0.096221	validation_0-target_score:-0.843766	validation_1-target_score:-0.736004
+target score = 84.47 %
+accuracy (just for info) = 92.75 %
+target score = 73.51 %
+accuracy (just for info) = 90.39 %
+[225]	validation_0-merror:0.072636	validation_1-merror:0.096165	validation_0-target_score:-0.844656	validation_1-target_score:-0.735106
+target score = 84.51 %
+accuracy (just for info) = 92.77 %
+target score = 73.53 %
+accuracy (just for info) = 90.41 %
+[226]	validation_0-merror:0.072469	validation_1-merror:0.096108	validation_0-target_score:-0.845101	validation_1-target_score:-0.73533
+target score = 84.57 %
+accuracy (just for info) = 92.79 %
+target score = 73.51 %
+accuracy (just for info) = 90.38 %
+[227]	validation_0-merror:0.072217	validation_1-merror:0.096446	validation_0-target_score:-0.845657	validation_1-target_score:-0.735106
+target score = 84.57 %
+accuracy (just for info) = 92.79 %
+target score = 73.45 %
+accuracy (just for info) = 90.37 %
+[228]	validation_0-merror:0.072217	validation_1-merror:0.096446	validation_0-target_score:-0.845713	validation_1-target_score:-0.734545
+target score = 84.60 %
+accuracy (just for info) = 92.77 %
+target score = 73.48 %
+accuracy (just for info) = 90.36 %
+[229]	validation_0-merror:0.072357	validation_1-merror:0.096615	validation_0-target_score:-0.845991	validation_1-target_score:-0.734769
+target score = 84.60 %
+accuracy (just for info) = 92.78 %
+target score = 73.47 %
+accuracy (just for info) = 90.37 %
+[230]	validation_0-merror:0.072245	validation_1-merror:0.096446	validation_0-target_score:-0.845991	validation_1-target_score:-0.734657
+target score = 84.69 %
+accuracy (just for info) = 92.81 %
+target score = 73.67 %
+accuracy (just for info) = 90.37 %
+[231]	validation_0-merror:0.071966	validation_1-merror:0.096333	validation_0-target_score:-0.846937	validation_1-target_score:-0.736677
+target score = 84.81 %
+accuracy (just for info) = 92.83 %
+target score = 73.51 %
+accuracy (just for info) = 90.39 %
+[232]	validation_0-merror:0.071826	validation_1-merror:0.096221	validation_0-target_score:-0.848105	validation_1-target_score:-0.735106
+target score = 84.89 %
+accuracy (just for info) = 92.85 %
+target score = 73.57 %
+accuracy (just for info) = 90.37 %
+[233]	validation_0-merror:0.071602	validation_1-merror:0.096333	validation_0-target_score:-0.84894	validation_1-target_score:-0.735667
+target score = 84.91 %
+accuracy (just for info) = 92.85 %
+target score = 73.70 %
+accuracy (just for info) = 90.37 %
+[234]	validation_0-merror:0.071546	validation_1-merror:0.096502	validation_0-target_score:-0.849051	validation_1-target_score:-0.737013
+target score = 84.92 %
+accuracy (just for info) = 92.89 %
+target score = 73.75 %
+accuracy (just for info) = 90.37 %
+[235]	validation_0-merror:0.071183	validation_1-merror:0.096502	validation_0-target_score:-0.849218	validation_1-target_score:-0.737462
+target score = 84.96 %
+accuracy (just for info) = 92.91 %
+target score = 73.70 %
+accuracy (just for info) = 90.34 %
+[236]	validation_0-merror:0.071043	validation_1-merror:0.096671	validation_0-target_score:-0.849608	validation_1-target_score:-0.737013
+target score = 84.98 %
+accuracy (just for info) = 92.91 %
+target score = 73.78 %
+accuracy (just for info) = 90.36 %
+[237]	validation_0-merror:0.071015	validation_1-merror:0.096615	validation_0-target_score:-0.84983	validation_1-target_score:-0.737799
+target score = 85.09 %
+accuracy (just for info) = 92.92 %
+target score = 73.69 %
+accuracy (just for info) = 90.36 %
+[238]	validation_0-merror:0.070932	validation_1-merror:0.096783	validation_0-target_score:-0.850943	validation_1-target_score:-0.736901
+target score = 85.14 %
+accuracy (just for info) = 92.94 %
+target score = 73.80 %
+accuracy (just for info) = 90.36 %
+[239]	validation_0-merror:0.070708	validation_1-merror:0.096783	validation_0-target_score:-0.851388	validation_1-target_score:-0.738023
+target score = 85.21 %
+accuracy (just for info) = 92.95 %
+target score = 73.82 %
+accuracy (just for info) = 90.37 %
+[240]	validation_0-merror:0.070652	validation_1-merror:0.096446	validation_0-target_score:-0.852056	validation_1-target_score:-0.738248
+target score = 85.29 %
+accuracy (just for info) = 92.97 %
+target score = 73.79 %
+accuracy (just for info) = 90.38 %
+[241]	validation_0-merror:0.070373	validation_1-merror:0.096446	validation_0-target_score:-0.85289	validation_1-target_score:-0.737911
+target score = 85.31 %
+accuracy (just for info) = 92.98 %
+target score = 73.77 %
+accuracy (just for info) = 90.38 %
+[242]	validation_0-merror:0.070289	validation_1-merror:0.09639	validation_0-target_score:-0.853057	validation_1-target_score:-0.737687
+target score = 85.34 %
+accuracy (just for info) = 92.99 %
+target score = 73.82 %
+accuracy (just for info) = 90.37 %
+[243]	validation_0-merror:0.070205	validation_1-merror:0.096671	validation_0-target_score:-0.853447	validation_1-target_score:-0.738248
+target score = 85.39 %
+accuracy (just for info) = 93.00 %
+target score = 73.79 %
+accuracy (just for info) = 90.36 %
+[244]	validation_0-merror:0.070093	validation_1-merror:0.096615	validation_0-target_score:-0.853948	validation_1-target_score:-0.737911
+target score = 85.41 %
+accuracy (just for info) = 93.01 %
+target score = 73.69 %
+accuracy (just for info) = 90.33 %
+[245]	validation_0-merror:0.070009	validation_1-merror:0.096783	validation_0-target_score:-0.854059	validation_1-target_score:-0.736901
+target score = 85.42 %
+accuracy (just for info) = 93.02 %
+target score = 73.69 %
+accuracy (just for info) = 90.33 %
+[246]	validation_0-merror:0.069981	validation_1-merror:0.096783	validation_0-target_score:-0.85417	validation_1-target_score:-0.736901
+target score = 85.46 %
+accuracy (just for info) = 93.06 %
+target score = 73.72 %
+accuracy (just for info) = 90.33 %
+[247]	validation_0-merror:0.069702	validation_1-merror:0.09684	validation_0-target_score:-0.85456	validation_1-target_score:-0.737238
+target score = 85.58 %
+accuracy (just for info) = 93.06 %
+target score = 73.63 %
+accuracy (just for info) = 90.34 %
+[248]	validation_0-merror:0.069506	validation_1-merror:0.096896	validation_0-target_score:-0.855784	validation_1-target_score:-0.73634
+target score = 85.60 %
+accuracy (just for info) = 93.08 %
+target score = 73.60 %
+accuracy (just for info) = 90.32 %
+[249]	validation_0-merror:0.069255	validation_1-merror:0.097064	validation_0-target_score:-0.856006	validation_1-target_score:-0.736004
+target score = 85.65 %
+accuracy (just for info) = 93.10 %
+target score = 73.66 %
+accuracy (just for info) = 90.31 %
+[250]	validation_0-merror:0.069031	validation_1-merror:0.097008	validation_0-target_score:-0.856507	validation_1-target_score:-0.736565
+target score = 85.69 %
+accuracy (just for info) = 93.12 %
+target score = 73.63 %
+accuracy (just for info) = 90.33 %
+[251]	validation_0-merror:0.068863	validation_1-merror:0.096727	validation_0-target_score:-0.856896	validation_1-target_score:-0.73634
+target score = 85.73 %
+accuracy (just for info) = 93.14 %
+target score = 73.76 %
+accuracy (just for info) = 90.34 %
+[252]	validation_0-merror:0.068696	validation_1-merror:0.096615	validation_0-target_score:-0.857286	validation_1-target_score:-0.737574
+target score = 85.79 %
+accuracy (just for info) = 93.15 %
+target score = 73.70 %
+accuracy (just for info) = 90.33 %
+[253]	validation_0-merror:0.068528	validation_1-merror:0.096783	validation_0-target_score:-0.857898	validation_1-target_score:-0.737013
+target score = 85.77 %
+accuracy (just for info) = 93.17 %
+target score = 73.81 %
+accuracy (just for info) = 90.35 %
+[254]	validation_0-merror:0.06836	validation_1-merror:0.096558	validation_0-target_score:-0.857731	validation_1-target_score:-0.738135
+target score = 85.79 %
+accuracy (just for info) = 93.18 %
+target score = 73.75 %
+accuracy (just for info) = 90.37 %
+[255]	validation_0-merror:0.068304	validation_1-merror:0.09639	validation_0-target_score:-0.857898	validation_1-target_score:-0.737462
+target score = 85.88 %
+accuracy (just for info) = 93.21 %
+target score = 73.73 %
+accuracy (just for info) = 90.38 %
+[256]	validation_0-merror:0.067997	validation_1-merror:0.096333	validation_0-target_score:-0.858788	validation_1-target_score:-0.73735
+target score = 85.88 %
+accuracy (just for info) = 93.21 %
+target score = 73.73 %
+accuracy (just for info) = 90.37 %
+[257]	validation_0-merror:0.067941	validation_1-merror:0.096446	validation_0-target_score:-0.858844	validation_1-target_score:-0.73735
+target score = 85.88 %
+accuracy (just for info) = 93.22 %
+target score = 73.75 %
+accuracy (just for info) = 90.39 %
+[258]	validation_0-merror:0.067857	validation_1-merror:0.096277	validation_0-target_score:-0.858844	validation_1-target_score:-0.737462
+target score = 85.98 %
+accuracy (just for info) = 93.24 %
+target score = 73.69 %
+accuracy (just for info) = 90.37 %
+[259]	validation_0-merror:0.067634	validation_1-merror:0.096333	validation_0-target_score:-0.85979	validation_1-target_score:-0.736901
+target score = 85.97 %
+accuracy (just for info) = 93.26 %
+target score = 73.67 %
+accuracy (just for info) = 90.39 %
+[260]	validation_0-merror:0.067494	validation_1-merror:0.096165	validation_0-target_score:-0.859734	validation_1-target_score:-0.736677
+Stopping. Best iteration:
+[210]	validation_0-merror:0.074145	validation_1-merror:0.095659	validation_0-target_score:-0.83848	validation_1-target_score:-0.738921
+[0, 1, 2]
+0.238231407548

@@ -147,7 +147,7 @@ def to_xgb_df(df):
     # frequencies_cols=[]
 
 
-    for prior in [1, 10, 100]:
+    for prior in [1, 10, 100]:#
         for a_col, the_col, name in col_pairs:
             new_col = 'a_the_{}_p{}'.format(name, prior)
             create_normalized_ratio_col(df, a_col, the_col, new_col, prior)
@@ -353,6 +353,41 @@ def create_out_of_fold_xgb_predictions(df):
 
     return df_cp
 
+def eval_target_score(arts, probs, labels):
+    sz=len(arts)
+    all_mistakes = sum(arts[j]!=labels[j] for j in range(sz))
+    data=[]
+    for j in range(sz):
+        p = probs[j]#probs
+        a=arts[j]#current article
+        correct_a = labels[j]#correct article
+        p = [(i, p[i]) for i in range(len(p))]
+        p.sort(key=lambda s: s[1], reverse=True)
+        s = p[0][0]
+        conf = p[0][1]
+        conf = float('-inf') if a==s else conf
+        c = s ==correct_a
+
+        data.append((-conf, c, correct_a!=a))
+
+    data.sort()
+    fp2 = 0
+    fp = 0
+    tp = 0
+    score = 0
+    acc = 0
+    for _, c, r in data:
+        fp2 += not c # wrong correction
+        fp += not r#realy errors count
+        tp += c#right correction
+        acc = max(acc, 1 - (0. + fp + all_mistakes - tp) / len(data))
+        if fp2 * 1. / len(data) <= 0.02:
+            score = tp * 1. / all_mistakes
+    print 'target score = %.2f %%' % (score * 100)
+    print 'accuracy (just for info) = %.2f %%' % (acc * 100)
+
+
+    return 'target_score'  , -score
 
 
 def perform_xgboost_cv(df):
@@ -363,6 +398,19 @@ def perform_xgboost_cv(df):
     for train_arr, test_arr in create_splits(df, 3):
         train_arr = train_arr[cols]
         test_arr=test_arr[cols]
+
+        def get_articles(labels):
+            if len(labels)==len(train_arr):
+                return list(train_arr[article])
+            elif len(labels) == len(test_arr):
+                return list(test_arr[article])
+            raise
+
+        def my_obj(preds, dtrain):
+            labels = dtrain.get_label()
+            arts = get_articles(labels)
+
+            return eval_target_score(arts, preds, labels)
 
         print len(train_arr), len(test_arr)
         train_target = train_arr[TARGET]
@@ -376,7 +424,7 @@ def perform_xgboost_cv(df):
         estimator = xgb.XGBClassifier(n_estimators=10000,
                                       subsample=0.8,
                                       colsample_bytree=0.8,
-                                      max_depth=5,
+                                      max_depth=3,
                                       # learning_rate=learning_rate,
                                       objective='mlogloss',
                                       nthread=-1
@@ -387,7 +435,7 @@ def perform_xgboost_cv(df):
         estimator.fit(
             train_arr, train_target,
             eval_set=eval_set,
-            eval_metric='mlogloss',
+            eval_metric=my_obj,
             verbose=True,
             early_stopping_rounds=50
         )
