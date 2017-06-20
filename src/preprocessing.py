@@ -234,25 +234,25 @@ suffix_ngrams = 'suffix_ngrams'
 prefix_ngrams = 'prefix_ngrams'
 indef_article = 'indef_article'
 
-a_bi_chunk = 'a_bi_chunk'
-the_bi_chunk = 'the_bi_chunk'
-a_bi_freq = 'a_bi_freq'
-the_bi_freq = 'the_bi_freq'
+a_bi_chunk_suff = 'a_bi_chunk_suff'
+the_bi_chunk_suff = 'the_bi_chunk_suff'
+a_bi_freq_suff = 'a_bi_freq_suff'
+the_bi_freq_suff = 'the_bi_freq_suff'
 
-a_three_chunk = 'a_three_chunk'
-the_three_chunk = 'the_three_chunk'
-a_three_freq = 'a_three_freq'
-the_three_freq = 'the_three_freq'
+a_three_chunk_suff = 'a_three_chunk_suff'
+the_three_chunk_suff = 'the_three_chunk_suff'
+a_three_freq_suff = 'a_three_freq_suff'
+the_three_freq_suff = 'the_three_freq_suff'
 
-a_four_chunk = 'a_four_chunk'
-the_four_chunk = 'the_four_chunk'
-a_four_freq = 'a_four_freq'
-the_four_freq = 'the_four_freq'
+a_four_chunk_suff = 'a_four_chunk_suff'
+the_four_chunk_suff = 'the_four_chunk_suff'
+a_four_freq_suff = 'a_four_freq_suff'
+the_four_freq_suff = 'the_four_freq_suff'
 
-a_five_chunk = 'a_five_chunk'
-the_five_chunk = 'the_five_chunk'
-a_five_freq = 'a_five_freq'
-the_five_freq = 'the_five_freq'
+a_five_chunk_suff = 'a_five_chunk_suff'
+the_five_chunk_suff = 'the_five_chunk_suff'
+a_five_freq_suff = 'a_five_freq_suff'
+the_five_freq_suff = 'the_five_freq_suff'
 
 the_bi_freq_pref='the_bi_freq_pref'
 a_bi_freq_pref='a_bi_freq_pref'
@@ -273,6 +273,8 @@ the_five_freq_pref='the_five_freq_pref'
 a_five_freq_pref='a_five_freq_pref'
 the_five_chunk_pref='the_five_chunk_pref'
 a_five_chunk_pref='a_five_chunk_pref'
+
+
 
 a_noun_chunk_freq = 'a_noun_chunk_freq'
 the_noun_chunk_freq = 'the_noun_chunk_freq'
@@ -452,32 +454,32 @@ def preprocessin_step2(arr):
 
 
     df[tmp] = df.apply(lambda row: get_n_gram_chunks(row, 2), axis=1)
-    df[a_bi_chunk] = df[tmp].apply(lambda s: s[0])
-    df[the_bi_chunk] = df[tmp].apply(lambda s: s[1])
+    df[a_bi_chunk_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_bi_chunk_suff] = df[tmp].apply(lambda s: s[1])
     df[tmp] = df.apply(lambda row: get_n_gram_suff_freq(row, 2), axis=1)
-    df[a_bi_freq] = df[tmp].apply(lambda s: s[0])
-    df[the_bi_freq] = df[tmp].apply(lambda s: s[1])
+    df[a_bi_freq_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_bi_freq_suff] = df[tmp].apply(lambda s: s[1])
 
     df[tmp] = df.apply(lambda row: get_n_gram_chunks(row, 3), axis=1)
-    df[a_three_chunk] = df[tmp].apply(lambda s: s[0])
-    df[the_three_chunk] = df[tmp].apply(lambda s: s[1])
+    df[a_three_chunk_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_three_chunk_suff] = df[tmp].apply(lambda s: s[1])
     df[tmp] = df.apply(lambda row: get_n_gram_suff_freq(row, 3), axis=1)
-    df[a_three_freq] = df[tmp].apply(lambda s: s[0])
-    df[the_three_freq] = df[tmp].apply(lambda s: s[1])
+    df[a_three_freq_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_three_freq_suff] = df[tmp].apply(lambda s: s[1])
 
     df[tmp] = df.apply(lambda row: get_n_gram_chunks(row, 4), axis=1)
-    df[a_four_chunk] = df[tmp].apply(lambda s: s[0])
-    df[the_four_chunk] = df[tmp].apply(lambda s: s[1])
+    df[a_four_chunk_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_four_chunk_suff] = df[tmp].apply(lambda s: s[1])
     df[tmp] = df.apply(lambda row: get_n_gram_suff_freq(row, 4), axis=1)
-    df[a_four_freq] = df[tmp].apply(lambda s: s[0])
-    df[the_four_freq] = df[tmp].apply(lambda s: s[1])
+    df[a_four_freq_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_four_freq_suff] = df[tmp].apply(lambda s: s[1])
 
     df[tmp] = df.apply(lambda row: get_n_gram_chunks(row, 5), axis=1)
-    df[a_five_chunk] = df[tmp].apply(lambda s: s[0])
-    df[the_five_chunk] = df[tmp].apply(lambda s: s[1])
+    df[a_five_chunk_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_five_chunk_suff] = df[tmp].apply(lambda s: s[1])
     df[tmp] = df.apply(lambda row: get_n_gram_suff_freq(row, 5), axis=1)
-    df[a_five_freq] = df[tmp].apply(lambda s: s[0])
-    df[the_five_freq] = df[tmp].apply(lambda s: s[1])
+    df[a_five_freq_suff] = df[tmp].apply(lambda s: s[0])
+    df[the_five_freq_suff] = df[tmp].apply(lambda s: s[1])
 
 
     df[tmp] = df.apply(lambda row: get_n_gram_prefix_chunks(row, 2), axis=1)
@@ -530,122 +532,7 @@ def preprocessin_step2(arr):
 
     return df
 
-bi='bi'
-three = 'three'
-four = 'four'
-five = 'five'
-N = 'N'
-NNs = 'NNs'
-def exploring_df(df):
-    columns = [
-        article,
-        correct_article,
-        correct,
-        def_correct,
-        # def_ngram_count_ratio,
-        # indef_ngram_count_ratio,
-        # definite_chunk,
-        # def_ngram_count,
-        # indefinite_chunk,
-        # indef_ngram_count,
-        # sentence,
-        # difficult,
-        # ngram_confidence_level,
-        # sentence_index,
-        # position,
-        # st_with_v,
-        # suffix,
 
-        # indef_article,
-
-        # a_bi_chunk,
-        # the_bi_chunk,
-        a_bi_freq,
-        the_bi_freq,
-
-        # a_three_chunk,
-        # the_three_chunk,
-        a_three_freq,
-        the_three_freq,
-
-        # a_four_chunk,
-        # the_four_chunk,
-        a_four_freq,
-        the_four_freq,
-
-        # a_five_chunk,
-        # the_five_chunk,
-        a_five_freq,
-        the_five_freq,
-
-        suffix_ngrams,
-        suffix_noun,
-        suffix_nounS,
-
-
-        # a_bi_chunk,
-        # the_bi_chunk,
-        # a_bi_freq,
-        # the_bi_freq,
-        #
-        # a_three_chunk,
-        # the_three_chunk,
-        # a_three_freq,
-        # the_three_freq,
-        #
-        # a_four_chunk,
-        # the_four_chunk,
-        # a_four_freq,
-        # the_four_freq,
-        #
-        # a_five_chunk,
-        # the_five_chunk,
-        # a_five_freq,
-        # the_five_freq,
-        # 'article',
-        # correct_article,
-        # 'full_sentence',
-        # 'next_token',
-        # 'next_token_POS',
-        # 'noun',
-        # 'position',
-        # raw_next_token,
-        # 'raw_next_token_POS',
-        # raw_suffix,
-        # 'st_with_v',
-        # sentence_index,
-        # sentence,
-        # difficult_vowel_detection,
-        # difficult_suffix,
-        # difficult_noun_detection,
-        # difficult
-        the_end
-    ]
-
-    add_short_freq_cols(df)
-
-    columns=[
-        suffix_ngrams,
-        suffix_noun,
-        suffix_nounS,
-        bi,
-        three,
-        four,
-        five,
-        N,
-        NNs
-    ]
-
-    return df[columns]
-
-
-def add_short_freq_cols(df):
-    df[bi] = df[a_bi_freq].apply(str) + '/' + df[the_bi_freq].apply(str)
-    df[three] = df[a_three_freq].apply(str) + '/' + df[the_three_freq].apply(str)
-    df[four] = df[a_four_freq].apply(str) + '/' + df[the_four_freq].apply(str)
-    df[five] = df[a_five_freq].apply(str) + '/' + df[the_five_freq].apply(str)
-    df[N] = df[a_noun_chunk_freq].apply(str) + '/' + df[the_noun_chunk_freq].apply(str)
-    df[NNs] = df[a_nounS_chunk_freq].apply(str) + '/' + df[the_nounS_chunk_freq].apply(str)
 
 
 def load_train():
@@ -673,8 +560,7 @@ def split_arr(df, c):
     return a,b
 
 
-
-def load_train_cv(seed=42, c=0.66):
+def load_train_cv_old(seed=42, c=0.66):
     sent_train = load_resource(fp_sentence_train)
     corr_train = load_resource(fp_corrections_train)
     pos_train = load_resource(fp_pos_tags_train)
