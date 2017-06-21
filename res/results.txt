@@ -27,6 +27,9 @@
 10)all + prior + sn_grams =[1, 10,100] n_est=180
     73.96 %
 
+11)all + prior + sn_grams =[1, 10,100] n_est=250
+    74.01 %
+
 
 
 

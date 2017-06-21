@@ -40,7 +40,7 @@ def submit_xgb_test():
     del test_arr[TARGET]
     print test_target.head()
 
-    estimator = xgb.XGBClassifier(n_estimators=180,
+    estimator = xgb.XGBClassifier(n_estimators=250,
                                   subsample=0.8,
                                   colsample_bytree=0.8,
                                   max_depth=5,

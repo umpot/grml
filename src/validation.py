@@ -162,9 +162,9 @@ def df_to_submit_array(df, sentences):
 
 
 
-def submit_xgb_out_of_fold_pred(df):
+def submit_xgb_out_of_fold_pred(df, n_estimators):
     # df = load_train()
-    df = create_out_of_fold_xgb_predictions(df)
+    df = create_out_of_fold_xgb_predictions(df, n_estimators)
     add_corrections_cols(df)
 
     stats = submit_train(df)
@@ -173,7 +173,7 @@ def submit_xgb_out_of_fold_pred(df):
 
 
 
-def create_out_of_fold_xgb_predictions(df):
+def create_out_of_fold_xgb_predictions(df, n_estimators):
     # df = load_train()
     TARGET = correct_article
     df_cp = df.copy()
@@ -192,7 +192,7 @@ def create_out_of_fold_xgb_predictions(df):
 
         # train_arr, test_arr = train_arr[cols], test_arr[cols]
 
-        estimator = xgb.XGBClassifier(n_estimators=110,
+        estimator = xgb.XGBClassifier(n_estimators=n_estimators,
                                       subsample=0.8,
                                       colsample_bytree=0.8,
                                       max_depth=5,
