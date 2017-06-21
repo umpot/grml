@@ -1,5 +1,5 @@
 # coding=utf-8
-from itertools import izip_longest
+from syntactic_ngrams import *
 
 import numpy as np
 import pandas as pd
@@ -72,6 +72,9 @@ def load_train_arr():
 def load_test_arr():
     return load_resource(fp_sentence_test)
 
+def load_private_test_arr():
+    return load_resource(fp_sentence_private_test)
+
 def load_ngrams():
     return load_resource(fp_ngrams)
 
@@ -79,13 +82,19 @@ def load_ngrams():
 def load_syntactic_ngrams():
     return load_resource(fp_syntactic_ngrams)
 
-
 #########################################################
 #
 #########################################################
 #########################################################
 #Constants
 #########################################################
+
+
+art_map = {'a':0, 'an':1, 'the':2}
+inverse_art_map={0:'a', 1:'an', 2:'the'}
+
+
+
 ARTICLES = {'a', 'an', 'the'}
 
 NOUNS = {'NNPS', 'NNP', 'NNS', 'NN'}
@@ -244,11 +253,6 @@ def starts_with_vowel(s):
 #########################################################
 tmp = 'tmp'
 
-# original_chunk = 'original_chunk'
-# correct_chunk = 'correct_chunk'
-# definite_chunk = 'definite_chunk'
-# indefinite_chunk = 'indefinite_chunk'
-
 correct = 'correct'
 def_correct = 'def_correct'
 sentence = 'sentence'
@@ -281,6 +285,12 @@ the_end = 'the_end'
 suffix_ngrams = 'suffix_ngrams'
 prefix_ngrams = 'prefix_ngrams'
 indef_article = 'indef_article'
+
+a_sn_gram = 'a_sn_gram'
+the_sn_gram = 'the_sn_gram'
+
+a_sn_gram_freq = 'a_sn_gram_freq'
+the_sn_gram_freq = 'the_sn_gram_freq'
 
 a_bi_chunk_suff = 'a_bi_chunk_suff'
 the_bi_chunk_suff = 'the_bi_chunk_suff'
@@ -338,6 +348,15 @@ suffix_nounS='suffix_nounS'
 #########################################################
 #Preprocessing...
 #########################################################
+
+def is_indefinite_article(a):
+    return a in {'a', 'an'}
+
+
+def is_definite_article(a):
+    return a == 'the'
+
+
 def preprocessing_step1_general(x, sentence_index_val):
     for i, y in enumerate(x):
         article_val = y[0]
@@ -430,9 +449,10 @@ def get_sentence_plain(x):
     return ' '.join([y[0] for y in x])
 
 
-def preprocessin_step2(arr):
+def preprocessin_step2(arr, dep_trees):
     l = []
     ngrams = load_ngrams()
+    sngrams = load_syntactic_ngrams()
 
     for x in arr:
         for y in x:
@@ -463,6 +483,15 @@ def preprocessin_step2(arr):
     df[difficult_vowel_detection] = df[st_with_v].apply(lambda s: s[1])
     df[st_with_v] = df[st_with_v].apply(lambda s: s[0])
     df[indef_article] = df[st_with_v].apply(lambda s: 'an' if s == 1 else 'a')
+
+    def get_a_sn_gram(row):
+        return create_sn_gram_for_article(dep_trees[row[sentence_index]][row[position]], row[indef_article])
+
+    def get_the_sn_gram(row):
+        return create_sn_gram_for_article(dep_trees[row[sentence_index]][row[position]], 'the')
+
+    df[a_sn_gram] = df.apply(get_a_sn_gram, axis=1)
+    df[the_sn_gram]=df.apply(get_the_sn_gram, axis=1)
 
     def get_n_gram_suff_freq(row, n):
         ss = row[suffix_ngrams]
@@ -566,7 +595,8 @@ def preprocessin_step2(arr):
     df[a_five_freq_pref] = df[tmp].apply(lambda s: s[0])
     df[the_five_freq_pref] = df[tmp].apply(lambda s: s[1])
 
-
+    df[a_sn_gram_freq] = df[a_sn_gram].apply(lambda s: sngrams.get(s, 0))
+    df[the_sn_gram_freq] = df[the_sn_gram].apply(lambda s: sngrams.get(s, 0))
 
     df[tmp] = df.apply(lambda row: get_n_suff_freq(row, suffix_noun), axis=1)
     df[a_noun_chunk_freq] = df[tmp].apply(lambda s: s[0])
@@ -596,6 +626,77 @@ def add_dummy_cols_df(df, col, vals):
 
     return pd.get_dummies(df, columns=[col]), new_cols
 
+def to_xgb_df(df):
+    df[article]=df[article].apply(lambda s: art_map[s])
+    df[correct_article]=df[correct_article].apply(lambda s: art_map[s])
+
+    def normalized_ratio(row, col1, col2, prior):
+        a = row[col1]
+        b = row[col2]
+        if a is None:
+            return None
+        return (float(prior) + a) / (float(prior) + b)
+
+    def normalized_ratio1(row, col1, col2, prior):
+        a = row[col1]
+        b = row[col2]
+        if a is None:
+            return None
+        return (float(prior) + a) / (2*float(prior) + b+a)
+
+    def create_normalized_ratio_col(d, col1, col2, new_col, prior):
+        d[new_col] = d.apply(lambda row: normalized_ratio(row, col1, col2, prior), axis=1)
+
+    def create_normalized_ratio_col1(d, col1, col2, new_col, prior):
+        d[new_col] = d.apply(lambda row: normalized_ratio1(row, col1, col2, prior), axis=1)
+
+    col_pairs=[
+        (a_bi_freq_suff, the_bi_freq_suff, 'bi_freq_suff'),
+        (a_three_freq_suff, the_three_freq_suff, 'three_freq_suff'),
+        (a_four_freq_suff, the_four_freq_suff, 'four_freq_suff'),
+        (a_five_freq_suff, the_five_freq_suff, 'five_freq_suff'),
+
+        (a_bi_freq_pref, the_bi_freq_pref, 'bi_freq_pref'),
+        (a_three_freq_pref, the_three_freq_pref, 'three_freq_pref'),
+        (a_four_freq_pref, the_four_freq_pref, 'four_freq_pref'),
+        (a_five_freq_pref, the_five_freq_pref, 'five_freq_pref'),
+        (a_sn_gram_freq, the_sn_gram_freq, 'sn_ngram_freq')
+    ]
+
+    frequencies_cols = [x[0] for x in col_pairs]+[x[1] for x in col_pairs]
+    # frequencies_cols=[]
+
+
+    for prior in [1, 10, 100]:#
+        for a_col, the_col, name in col_pairs:
+            new_col = 'a_the_{}_p{}'.format(name, prior)
+            create_normalized_ratio_col(df, a_col, the_col, new_col, prior)
+            frequencies_cols.append(new_col)
+
+            new_col = 'the_a_{}_p{}'.format(name, prior)
+            create_normalized_ratio_col(df, the_col, a_col, new_col, prior)
+            frequencies_cols.append(new_col)
+
+    # cols_to_exclude = [
+    #     'the_bi_freq_pref', 'the_three_freq_pref',
+    #     'the_four_freq_pref' ,'the_five_freq_pref',
+    #     'a_bi_freq_pref', 'a_three_freq_pref',
+    #     'a_four_freq_pref', 'a_five_freq_pref'
+    # ]
+    #
+    # frequencies_cols = list(set(frequencies_cols).difference(set(cols_to_exclude)))
+
+    cols = frequencies_cols + [st_with_v,article, correct_article]
+
+    # df, new_cols = add_dummy_cols_df(df, raw_prev_token_POS, prev_token_tags)
+    # cols+=new_cols
+    #
+    # df, new_cols = add_dummy_cols_df(df, raw_next_token_POS, next_token_tags)
+    # cols+=new_cols
+
+
+    return df, cols
+
 
 
 
@@ -603,6 +704,8 @@ def load_train():
     sent_train = load_resource(fp_sentence_train)
     corr_train = load_resource(fp_corrections_train)
     pos_train = load_resource(fp_pos_tags_train)
+    dep_trees = load_resource(fp_dependencies_train)
+    preprocess_dependency_tree(dep_trees, sent_train, pos_train)
     print len(sent_train) == len(corr_train)
     res = [zip(sent_train[i], corr_train[i], pos_train[i]) for i in range(len(sent_train))]
     res = [[list(y) for y in x] for x in res]
@@ -610,7 +713,36 @@ def load_train():
     for i, x in enumerate(res):
         preprocessing_step1(x, i)
 
-    return preprocessin_step2(res)
+    return preprocessin_step2(res, dep_trees)
+
+def load_test():
+    sent_test = load_resource(fp_sentence_test)
+    corr_test = load_resource(fp_corrections_test)
+    pos_test = load_resource(fp_pos_tags_test)
+    dep_trees = load_resource(fp_dependencies_test)
+    preprocess_dependency_tree(dep_trees, sent_test, pos_test)
+    print len(sent_test) == len(corr_test)
+    res = [zip(sent_test[i], corr_test[i], pos_test[i]) for i in range(len(sent_test))]
+    res = [[list(y) for y in x] for x in res]
+
+    for i, x in enumerate(res):
+        preprocessing_step1(x, i)
+
+    return preprocessin_step2(res, dep_trees)
+
+def load_private_test():
+    sent_private_test = load_resource(fp_sentence_private_test)
+    pos_private_test = load_resource(fp_pos_tags_private_test)
+    corr_private_test = [[None]*len(x) for x in sent_private_test]
+    dep_trees = load_resource(fp_dependencies_private_test)
+    preprocess_dependency_tree(dep_trees, sent_private_test, pos_private_test)
+    res = [zip(sent_private_test[i], corr_private_test[i], pos_private_test[i]) for i in range(len(sent_private_test))]
+    res = [[list(y) for y in x] for x in res]
+
+    for i, x in enumerate(res):
+        preprocessing_step1(x, i)
+
+    return preprocessin_step2(res, dep_trees)
 
 def split_arr(df, c):
     msk = np.random.rand(len(df)) < c
@@ -624,39 +756,3 @@ def split_arr(df, c):
     return a,b
 
 
-def load_train_cv_old(seed=42, c=0.66):
-    sent_train = load_resource(fp_sentence_train)
-    corr_train = load_resource(fp_corrections_train)
-    pos_train = load_resource(fp_pos_tags_train)
-    print len(sent_train) == len(corr_train)
-    res = [zip(sent_train[i], corr_train[i], pos_train[i]) for i in range(len(sent_train))]
-    res = [[list(y) for y in x] for x in res]
-
-    for i, x in enumerate(res):
-        preprocessing_step1(x, i)
-
-    np.random.seed(seed)
-
-    a,b = split_arr(res, c)
-    a=preprocessin_step2(a)
-    b=preprocessin_step2(b)
-
-    return a,b
-
-def load_test():
-    sent_test = load_resource(fp_sentence_test)
-    corr_test = load_resource(fp_corrections_test)
-    pos_test = load_resource(fp_pos_tags_test)
-    print len(sent_test) == len(corr_test)
-    res = [zip(sent_test[i], corr_test[i], pos_test[i]) for i in range(len(sent_test))]
-    res = [[list(y) for y in x] for x in res]
-
-    for i, x in enumerate(res):
-        preprocessing_step1(x, i)
-
-    return preprocessin_step2(res)
-#########################################################
-#
-#########################################################
-
-# train_df = exploring_df(load_train())

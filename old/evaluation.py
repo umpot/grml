@@ -1,6 +1,6 @@
 from sklearn.metrics import log_loss
 
-from preprocessing import *
+from src.preprocessing import *
 import pandas as pd
 import xgboost as xgb
 import matplotlib.pyplot as plt

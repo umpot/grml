@@ -39,8 +39,7 @@ def evaluate(text_file, correct_file, submission_file):
 # if __name__ == '__main__':
 #     evaluate('data/sentence_test.txt', 'data/corrections_test.txt', 'data/submission_test.txt')
 
-text_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/sentence_test.txt'
-correct_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/corrections_test.txt'
-submission_file='/home/ubik/PycharmProjects/grml/src/test_submition.json'
-# submission_file='/home/ubik/PycharmProjects/data/grml/grammarly_research_assignment/data/submission_test.txt'
+text_file='../../data/grml/grammarly_research_assignment/data/sentence_test.txt'
+correct_file='../../data/grml/grammarly_research_assignment/data/corrections_test.txt'
+submission_file='../../grml/src/test_submission.json'
 evaluate(text_file, correct_file, submission_file)

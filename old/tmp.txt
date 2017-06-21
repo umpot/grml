@@ -1,0 +1,2 @@
+def load_private_test_arr():
+    return load_resource(fp_sentence_private_test)

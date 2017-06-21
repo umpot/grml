@@ -24,5 +24,9 @@
 9)all + prior + prev_next pos=[1, 10,100] n_est=180
     73.23 %
 
+10)all + prior + sn_grams =[1, 10,100] n_est=180
+    73.96 %
+
+
 
 
