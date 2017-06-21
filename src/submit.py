@@ -1,6 +1,26 @@
 from preprocessing import *
 from validation import *
 
+def add_corrections_cols(df):
+    def get_corrections(row):
+        a = row['a']
+        an = row['an']
+        the = row['the']
+
+        s = [(a, 'a'), (an, 'an'), (the, 'the')]
+        s.sort(key=lambda s: s[0], reverse=True)
+
+        proposed_correction = s[0][1]
+        art_val = row[article]
+        if proposed_correction == inverse_art_map[art_val]:
+            return None, None
+        else:
+            return proposed_correction, s[0][0]
+
+    df[tmp] = df.apply(get_corrections, axis=1)
+    df[correction] = df[tmp].apply(lambda s: s[0])
+    df[confidence] = df[tmp].apply(lambda s: s[1])
+
 def submit_xgb_test():
     train_arr = load_train()
     test_arr = load_test()

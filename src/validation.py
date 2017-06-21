@@ -87,14 +87,16 @@ def create_submission_arr(df, sents):
 
 def arr_to_explore_errors_df(arr):
     cols = arr[0].keys()
+    print cols
     m = OrderedDict((c, [None if x is None else x[c] for x in arr]) for c in cols)
     df= pd.DataFrame(m)
 
     df['trans'] = df[article]+'->'+df[correction].apply(str)#.apply(lambda s: inverse_art_map[s])
     # add_short_freq_cols(df)
-    cols = ['trans', confidence]
+    cols = [article, 'trans', 'a', 'an', 'the',
+            difficult_vowel_detection, indef_article, suffix_ngrams, sentence_index]
 
-    return df[cols]
+    return df
 
 
 
@@ -126,7 +128,7 @@ def add_corrections_cols(df):
 
         proposed_correction = s[0][1]
         art_val = row[article]
-        if proposed_correction == inverse_art_map[art_val]:
+        if proposed_correction == art_val:
             return None, None
         else:
             return proposed_correction, s[0][0]
