@@ -1,6 +1,6 @@
-from src.preprocessing import *
 import pandas as pd
 
+from submit.src.preprocessing import *
 
 
 def is_indefinite_article(a):

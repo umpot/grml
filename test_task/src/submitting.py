@@ -2,6 +2,11 @@ from preprocessing import *
 from validation import *
 
 def add_corrections_cols(df):
+    """
+    Adds columns with correction-candidate + correction-confidence
+    :param df:
+    :return:
+    """
     def get_corrections(row):
         a = row['a']
         an = row['an']
@@ -22,6 +27,10 @@ def add_corrections_cols(df):
     df[confidence] = df[tmp].apply(lambda s: s[1])
 
 def submit_xgb_test():
+    """
+    Creates submission file for test
+    :return:
+    """
     train_arr = load_train()
     test_arr = load_test()
 
@@ -40,7 +49,7 @@ def submit_xgb_test():
     del test_arr[TARGET]
     print test_target.head()
 
-    estimator = xgb.XGBClassifier(n_estimators=250,
+    estimator = xgb.XGBClassifier(n_estimators=180,
                                   subsample=0.8,
                                   colsample_bytree=0.8,
                                   max_depth=5,
@@ -75,6 +84,10 @@ def submit_xgb_test():
 
 
 def submit_xgb_private_test():
+    """
+    Creates submission file for private-test
+    :return:
+    """
     train_arr = load_train()
     private_test_arr = load_private_test()
 
@@ -125,3 +138,6 @@ def submit_xgb_private_test():
     json.dump(res, open('private_test_submission.json', 'w+'))
 
     # return res
+
+# submit_xgb_test()
+submit_xgb_private_test()

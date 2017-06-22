@@ -8,13 +8,15 @@ import xgboost as xgb
 import matplotlib.pyplot as plt
 
 
-def submit_train(df):
-    train_arr = load_train_arr()
-    corrections = load_resource(fp_corrections_train)
-    submit_arr = create_submission_arr(df, train_arr)
-    return evaluate(train_arr, corrections, submit_arr)
 
 def evaluate(text, correct, submission):
+    """
+    Evaluation function from the task
+    :param text:
+    :param correct:
+    :param submission:
+    :return:
+    """
     print len(text), len(correct), len(submission)
     # with open(text_file) as f:
     #     text = json.load(f)
@@ -68,7 +70,20 @@ def evaluate(text, correct, submission):
     return stats
 
 
+def submit_train(df):
+    train_arr = load_train_arr()
+    corrections = load_resource(fp_corrections_train)
+    submit_arr = create_submission_arr(df, train_arr)
+    return evaluate(train_arr, corrections, submit_arr)
+
+
 def create_submission_arr(df, sents):
+    """
+    Creates submission
+    :param df:
+    :param sents:
+    :return:
+    """
     arr = [[None] * (len(x)) for x in sents]
 
     cols = df.columns
@@ -86,6 +101,11 @@ def create_submission_arr(df, sents):
     return arr
 
 def arr_to_explore_errors_df(arr):
+    """
+    Transorms array to DataFrame with detailed information
+    :param arr:
+    :return:
+    """
     cols = arr[0].keys()
     print cols
     m = OrderedDict((c, [None if x is None else x[c] for x in arr]) for c in cols)
@@ -100,9 +120,14 @@ def arr_to_explore_errors_df(arr):
 
 
 
-
-
 def create_splits(df, cv, seed=42):
+    """
+    Creates random splits of DataFrame
+    :param df:
+    :param cv:
+    :param seed:
+    :return:
+    """
     s_indexes = set(df[sentence_index])
     np.random.seed(seed)
     m = {j: np.random.randint(0, cv) for j in s_indexes}
@@ -118,6 +143,11 @@ def create_splits(df, cv, seed=42):
 
 
 def add_corrections_cols(df):
+    """
+    Adds columns with correction-candidate + correction-confidence
+    :param df:
+    :return:
+    """
     def get_corrections(row):
         a = row['a']
         an = row['an']
@@ -139,6 +169,12 @@ def add_corrections_cols(df):
 
 
 def df_to_submit_array(df, sentences):
+    """
+    Transforms DataFrame to submission format
+    :param df:
+    :param sentences:
+    :return:
+    """
     res = [[None]*len(x) for x in sentences]
 
     def collect_corrections_info(row):
@@ -162,8 +198,14 @@ def df_to_submit_array(df, sentences):
 
 
 
-def submit_xgb_out_of_fold_pred(df, n_estimators):
-    # df = load_train()
+def explore_xgb_errors(df, n_estimators):
+    """
+    Performs Xgboost prediction and returns data-frames
+     with detailed information about the most right\wrong predictions
+    :param df:
+    :param n_estimators:
+    :return:
+    """
     df = create_out_of_fold_xgb_predictions(df, n_estimators)
     add_corrections_cols(df)
 
@@ -174,6 +216,12 @@ def submit_xgb_out_of_fold_pred(df, n_estimators):
 
 
 def create_out_of_fold_xgb_predictions(df, n_estimators):
+    """
+    Creates xgboost's predictions
+    :param df:
+    :param n_estimators:
+    :return:
+    """
     # df = load_train()
     TARGET = correct_article
     df_cp = df.copy()
@@ -225,6 +273,13 @@ def create_out_of_fold_xgb_predictions(df, n_estimators):
     return df_cp
 
 def eval_target_score(arts, probs, labels):
+    """
+    Evaluates target score(i.e. recall at 2% level of FP)
+    :param arts:
+    :param probs:
+    :param labels:
+    :return:
+    """
     sz=len(arts)
     all_mistakes = sum(arts[j]!=labels[j] for j in range(sz))
     data=[]
@@ -262,6 +317,11 @@ def eval_target_score(arts, probs, labels):
 
 
 def perform_xgboost_cv(df):
+    """
+    Performs Cross Validation with Early Stoppings based on target-score
+    :param df:
+    :return:
+    """
     TARGET = correct_article
     df, cols = to_xgb_df(df)
     losses = []
@@ -276,7 +336,7 @@ def perform_xgboost_cv(df):
                 return list(test_arr[article])
             raise
 
-        def my_obj(preds, dtrain):
+        def target_score_objective(preds, dtrain):
             labels = dtrain.get_label()
             arts = get_articles(labels)
 
@@ -305,7 +365,7 @@ def perform_xgboost_cv(df):
         estimator.fit(
             train_arr, train_target,
             eval_set=eval_set,
-            eval_metric=my_obj,#'mlogloss'
+            eval_metric=target_score_objective,#'mlogloss'
             verbose=True,
             early_stopping_rounds=50
         )

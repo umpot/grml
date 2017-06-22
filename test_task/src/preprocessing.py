@@ -24,7 +24,7 @@ pd.set_option('display.max_colwidth', 100)
 #########################################################
 #Loading data...
 #########################################################
-data_folder = '../../data/grml/grammarly_research_assignment/data'
+DATA_FOLDER = '../../data/grml/grammarly_research_assignment/data'
 
 fp_sentence_train = 'sentence_train'
 fp_sentence_test = 'sentence_test'
@@ -54,7 +54,7 @@ fp_dependencies_test='dependencies_test'
 fp_dependencies_private_test='dependencies_private_test'
 
 def get(name):
-    return os.path.join(data_folder, name)
+    return os.path.join(DATA_FOLDER, name)
 
 
 def load_resource(name):
@@ -181,6 +181,10 @@ symbols_to_skip = '[\'\(\-\{\@]'  # {"'", '(', '-', '{'}
 # Vowel/Consonant preprocessing...
 #########################################################
 def build_starts_with_vowel_dict():
+    """
+    Create utility dict
+    :return:
+    """
     trans = load_transcription()
     del trans['amens']
     trans = {k: re.sub(symbols_to_skip, '', v) for k, v in trans.iteritems()}
@@ -191,6 +195,10 @@ def build_starts_with_vowel_dict():
 
 
 def build_tri_starts_with_vowel_dict(starts_with_vowel_dict):
+    """
+    Create utility dict
+    :return:
+    """
     res = {k: v for k, v in starts_with_vowel_dict.iteritems() if len(k) > 2}
     res = {k[:2]: v for k, v in res.iteritems()}
 
@@ -198,6 +206,10 @@ def build_tri_starts_with_vowel_dict(starts_with_vowel_dict):
 
 
 def build_bi_starts_with_vowel_dict(starts_with_vowel_dict):
+    """
+    Create utility dict
+    :return:
+    """
     res = {k: v for k, v in starts_with_vowel_dict.iteritems() if len(k) > 1}
     res = {k[:1]: v for k, v in res.iteritems()}
 
@@ -205,6 +217,10 @@ def build_bi_starts_with_vowel_dict(starts_with_vowel_dict):
 
 
 def build_one_starts_with_vowel_dict():
+    """
+    Create utility dict
+    :return:
+    """
     res = {chr(i): 0 for i in range(97, 123)}
     res['a'] = 1
     res['i'] = 1
@@ -222,6 +238,11 @@ bi_starts_with_vowel_dict = build_bi_starts_with_vowel_dict(starts_with_vowel_di
 one_starts_with_vowel_dict = build_one_starts_with_vowel_dict()
 
 def starts_with_vowel(s):
+    """
+    Checks if token starts with a vowel
+    :param s:
+    :return:
+    """
     if s is None:
         print 'None'
         return 0, True
@@ -358,6 +379,12 @@ def is_definite_article(a):
 
 
 def preprocessing_step1_general(x, sentence_index_val):
+    """
+    Basic transformation
+    :param x:
+    :param sentence_index_val:
+    :return:
+    """
     for i, y in enumerate(x):
         article_val = y[0]
         correct_article_val = y[1]
@@ -389,6 +416,11 @@ def preprocessing_step1_general(x, sentence_index_val):
         y.append(attachment)
 
 def preprocessing_step1_noun_chunks(x):
+    """
+    Extracts 'noun chunks' i.e. 'article token1 ... tokenK first_noun_token'
+    :param x:
+    :return:
+    """
     for i, y in enumerate(x):
         article_val = y[0]
         if article_val not in ARTICLES:
@@ -441,6 +473,12 @@ def preprocessing_step1_noun_chunks(x):
 
 
 def preprocessing_step1(x, sentence_index):
+    """
+    Basic preprocessing
+    :param x:
+    :param sentence_index:
+    :return:
+    """
     preprocessing_step1_general(x, sentence_index)
     preprocessing_step1_noun_chunks(x)
 
@@ -448,8 +486,13 @@ def preprocessing_step1(x, sentence_index):
 def get_sentence_plain(x):
     return ' '.join([y[0] for y in x])
 
-
 def preprocessin_step2(arr, dep_trees):
+    """
+    transforms array to pandas DataFrame + creates n-gram based features
+    :param arr:
+    :param dep_trees:
+    :return:
+    """
     l = []
     ngrams = load_ngrams()
     sngrams = load_syntactic_ngrams()
@@ -698,8 +741,6 @@ def to_xgb_df(df):
     return df, cols
 
 
-
-
 def load_train():
     sent_train = load_resource(fp_sentence_train)
     corr_train = load_resource(fp_corrections_train)
@@ -745,6 +786,12 @@ def load_private_test():
     return preprocessin_step2(res, dep_trees)
 
 def split_arr(df, c):
+    """
+    randomly splits array
+    :param df:
+    :param c:
+    :return:
+    """
     msk = np.random.rand(len(df)) < c
     a=[]
     b=[]

@@ -1,4 +1,4 @@
-from src.preprocessing import *
+from submit.src.preprocessing import *
 
 bi='bi'
 three = 'three'
