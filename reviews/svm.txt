@@ -1,0 +1,22 @@
+The Classical Support Vector Machines is a Linear Classification algorithm.
+Suppose we have data points each belongs to one of two classes.
+We can consider data points as points in some p-dimensional space. 
+So Classification problem can be considered as 
+finding some (p-1) dimensional surface that somehow separates these points. 
+And Linear Classification Problem is just selecting some well-separating hyperplane.
+And actually, Support Vector Machines propose such selecting method.
+It proposes a so-called max-margin hyperplane a hyperplane
+that separates two 'cloud' of points and is at equal distance from two.
+Unfortunately, such good hyperplane doesn't always exist.
+So SVM proposes something similar but for a non-separable case.
+Suppose we have some hyperplane and it divides space into two parts.
+Let's say a first part is for the first class of data point's and the second part is for the second class.
+Some data points are in wrong part. Let's call them bad. points. We want to penalize bad points.
+We can do it by minimizing the sum of the distances from bad points to our hyperplane.
+To be more precise we also want to penalize all points that are too close to our hyperplane.
+So all points that are closer than some number m are also bad.
+So we turned out our classification problem into optimization one -
+we should minimize the sum of distances.
+We can run some numeric optimization procedure and get appropriate hyperplane. And it's a SVM classifier
+
+And also there is some extension of this method, so-called kernel trick - that allows to create non-linear classifier
