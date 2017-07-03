@@ -1,0 +1,25 @@
+I created many different features but there were three main groups of features.
+First group is based on conditional distribution of target variable.
+For example if first sentence contains a word 'We' and the second question doesn't contain this word -
+it's an important signal, important information.
+So we can consider a ratio of duplicate pairs as a prior probability of having duplicate questions,
+and we can consider some set of events like words 'you' and 'he' are in the first sentence and only
+word 'he' is present in the second. Or like the word Trump are in both sentences.
+And we can calculate posterior probabilities of this events(based on train corpus) and use this numbers as a features.
+So I created many such features based on many different sets of such events. For different sets of pronouns,prepositions,
+named entities, for most frequent tokens rom different lists.
+The second group of features are many, really many similarity metrics. The most simple are Edit distance, number of common tokens,
+weighted sum of common tokens, common n-grams. I used many different schemes for creating weights. Many metrics using different word embeddings:
+euclidian, manhattan distance, cosine distance, WMD and so on. We also can consider word embedding as a probability distribution and
+ calculate different statistics: variance, mean, skew, kurtosis.
+The third group of features are graph-features. So we can create a graph where are questions,
+and two questions are connected if they appear in one row in dataset.
+And of course I had many other features.
+I created my best model using stacking tecknique. I had two level model.
+The key to have a good result with stacking is to have many differce base estimators.
+So at the first level I had approximatelly 150 base classifiers. Most of them were ensembles of trees - Gradient Boosting Machines,
+Random Forest, Extreemely Randomized Trees.In order to achive diversity they were built ussing different subsets of fetures,
+different preprocessing schemes, different hyperparameters. Also I had several neural networks as  base estimators.
+It were mostly LSTM using different word embeddings, also a few LSTM built only ussing nouns and only ussing verbs.
+ There were also, a few MLP, and some Liniar Models like logistic regression using n-grams.
+At the second layer I had one Xgboost.

@@ -1,9 +1,13 @@
 Logistic regression it's a statistical model for modeling dependencies between multiple random variables and
  one dependent categorical variable. And it's well known as a Machine Learning Algorithm for the classification task.
-It's a linear classifier. It assigns probabilities of class membership and these probabilities in common case can be thought as softmax of some linear combination of features.
-In NLP people often use a different term - Maximum Entropy Classifier. It's quite simple very fast to train so it's very popular Algorithm for Classification and
-it's often used as some baseline. It often has good performance for real word tasks, for example, it's an algorithm of choice for credit scoring, it's often used in insurance, loaning.
-But it has some drawbacks. First, it can't catch 'nonlinear interactions' between features. A Classical example is XOR.
+It's a linear classifier. It assigns probabilities of class membership and these probabilities in common case
+ can be thought as softmax of some linear combination of features.
+In NLP people often use a different term - Maximum Entropy Classifier.
+It's quite simple very fast to train so it's very popular Algorithm for Classification and
+it's often used as some baseline. It often has good performance for real word tasks,
+for example, it's an algorithm of choice for credit scoring, it's often used in insurance, loaning.
+But it has some drawbacks. First, it can't catch 'nonlinear interactions' between features.
+ A Classical example is XOR.
 Although there are some tricks that mitigate this drawback. The second drawback is about preprocessing.
 Unlike tree-based algorithms like Random Forest or Gradient Boosting Machines Logistic Regression requires careful preprocessing.
 Usually we will have poor results unless we perform so-called binning for features,
